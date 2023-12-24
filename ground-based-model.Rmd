@@ -1,0 +1,191 @@
+---
+title: "ground-based-model"
+output: html_document
+date: "2023-12-24"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Remove all objects from memory
+
+```{r}
+rm(list = ls())
+gc()
+```
+
+
+## Load Packages
+
+```{r, warn=FALSE}
+library(tidyverse)
+library(tidymodels)
+library(vip)
+library(tictoc)
+```
+
+
+
+## Set the seed for reproducibility
+
+```{r}
+set.seed(8675309)
+```
+
+
+
+## Read in ground based pixel data
+
+```{r}
+pixels_path <- 'raw_data/pixels.rds'
+
+clean_pixels <- readRDS(pixels_path) |>
+  group_by(key) |>
+  slice_sample(n = 50) |>
+  ungroup()
+```
+
+
+
+## Create training and testing set
+
+```{r}
+pixel_split <- clean_pixels |>
+  select(-c(cell, directory, poly_num, train_val))|>
+  group_initial_split(prop = 0.75, group = key)
+
+pixels_train <- pixel_split |>
+  training() 
+
+pixels_test <- pixel_split |>
+  testing()
+```
+
+
+
+
+## XGBoost model
+
+First we build the formula with all the predictors
+
+```{r}
+all_columns <- names(clean_pixels)
+non_predictors <- c("cell", "train_val", "label", "directory", "poly_num", "key", "label","")
+predictors <- all_columns[!all_columns %in% non_predictors]
+
+#formula <- as.formula(paste("label ~", paste(predictors, collapse = " + ")))
+formula <- as.formula(paste("label ~ hsv_1"))
+```
+
+
+Next, create a tidyverse recipe, specification, workflow, and grid of parameters to tune in the xgboost model.
+
+```{r}
+xgb_recipe  <- recipe(formula, data = pixels_train) |>
+  step_naomit(all_predictors()) |>
+  step_novel(all_nominal_predictors()) |>
+  step_dummy(all_nominal_predictors()) |>
+  step_zv(all_predictors()) |>
+  step_normalize(all_predictors())
+
+xgb_specification <- boost_tree(
+  trees = 500,
+  mtry = tune(),
+  min_n = tune(),
+  tree_depth = tune(),
+  learn_rate = tune(),
+  loss_reduction = tune(),
+  sample_size = tune()
+) |>
+  set_engine("xgboost", nthread = 5) |>
+  set_mode("classification")
+
+xgb_workflow <- workflow() |>
+  add_model(xgb_specification) |>
+  add_recipe(xgb_recipe)
+
+prepped_recipe <- prep(xgb_recipe)
+baked_recipe <- bake(prepped_recipe, new_data = NULL)
+
+xgb_grid <- grid_latin_hypercube(
+  finalize(mtry(),baked_recipe),
+  min_n(),
+  tree_depth(),
+  learn_rate(),
+  loss_reduction(),
+  sample_size = sample_prop(),
+  size = 12
+)
+```
+
+
+## Create folds for K fold cross validation
+
+```{r}
+pixel_folds <- pixels_train |>
+  group_vfold_cv(v = 10, group = key, balance = "observations")
+```
+
+
+Try nthread = 3 or 4 as an option in set_engine. Then try registerDoParallel(8) or 6. If runs out of memeory use more threads and fewer forks.
+
+Can also try racing methods to really speed things up.
+
+```{r}
+tic()
+doParallel::registerDoParallel(4)
+tune_results <- tune_grid(
+  xgb_workflow,
+  resamples = pixel_folds,
+  grid = xgb_grid,
+  control = control_grid(verbose = TRUE)
+)
+toc()
+```
+
+
+Tuning results
+
+```{r}
+tune_results |>
+  collect_metrics() |>
+  filter(.metric == "accuracy") |>
+  pivot_longer(mtry:sample_size, names_to = "parameter", values_to = "value") |>
+  rename(accuracy = mean) |>
+  ggplot(aes(value, accuracy, color = parameter)) +
+  geom_point(show.legend = FALSE) +
+  facet_wrap(~ parameter, scales = "free_x") +
+  theme_minimal()
+```
+
+
+Train the model with best hyperparmeters based on accuracy and then calculate testing error.
+
+```{r}
+xgb_best <- tune_results |>
+  select_best(metric = "accuracy")
+
+xgb_final <- xgb_workflow |>
+  finalize_workflow(xgb_best)
+
+xgb_fit <- xgb_final |>
+  fit(data = pixels_train)
+
+xgb_fit |>
+  augment(new_data = pixels_test) |>
+  accuracy(truth = label, estimate = .pred_class)
+
+# 0.5 threshold
+xgb_fit |>
+  augment(new_data = pixels_test) |>
+  conf_mat(truth = label, estimate = .pred_class)
+
+xgb_fit |>
+  extract_fit_engine() |>
+  vip(num_features = 25) +
+  theme_minimal()
+```
+
+
