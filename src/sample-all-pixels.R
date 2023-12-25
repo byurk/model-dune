@@ -3,9 +3,7 @@ library(tidyverse)
 library(tictoc)
 source("src/extract-polygon-pixels.R")
 
-
-
-## Check to ensure each directory has all the layers needed
+## Check to ensure each directory has all the layers the first directory has
 files <- list.files("raw_data/quadrats/quadrat34/", pattern = '.tif')
 directories <- sprintf("raw_data/quadrats/quadrat%02d/", seq(34, 83, 1))
 
@@ -28,15 +26,13 @@ for(directory in directories ){
 
 
 
-directories <- tibble(
-  directory = sprintf("raw_data/quadrats/quadrat%02d/", seq(34, 83, 1)),
-  polygon_path = sprintf("raw_data/quadrats/quadrat%02d/polygons.json", seq(34, 83, 1))
-)
+directories <- tibble(directory = sprintf("raw_data/quadrats/quadrat%02d/", seq(34, 83, 1)))
 
 data <- directories |>
   mutate(image = map(directory, ~list.files(.x, pattern = '.tif'))) |>
   unnest(cols = image) |>
-  mutate(image_path = paste0(directory, image))
+  mutate(image_path = paste0(directory, image)) |>
+  mutate(polygon_path = paste0(directory, 'polygons.josn'))
 
 args <- list(data$image_path, data$polygon_path)
 
@@ -49,4 +45,3 @@ toc()
 ## Save Data
 #raw_pixels <- data
 #saveRDS(raw_pixels, 'clean_data/pixels.rds')
-

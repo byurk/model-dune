@@ -1,0 +1,12 @@
+---
+title: "drone-based-model"
+output: html_document
+date: "2023-12-25"
+---
+
+## Load packages
+
+```{r}
+
+
+```
