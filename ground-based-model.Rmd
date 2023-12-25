@@ -9,17 +9,15 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 
-## Remove all objects from memory
+## Load all packages and remove all objects from memory
 
 ```{r}
 rm(list = ls())
 gc()
 ```
 
-
-## Load Packages
-
-```{r, warn=FALSE}
+```{r Load packages, warn=FALSE}
+library(rpart.plot)
 library(tidyverse)
 library(tidymodels)
 library(vip)
@@ -27,23 +25,21 @@ library(tictoc)
 ```
 
 
-
 ## Set the seed for reproducibility
 
-```{r}
+```{r Set the seed}
 set.seed(8675309)
 ```
 
 
-
 ## Read in ground based pixel data
 
-```{r}
+```{r Read in data}
 pixels_path <- 'raw_data/pixels.rds'
 
 clean_pixels <- readRDS(pixels_path) |>
   group_by(key) |>
-  slice_sample(n = 50) |>
+  slice_sample(n = 1000) |>
   ungroup()
 ```
 
@@ -51,13 +47,14 @@ clean_pixels <- readRDS(pixels_path) |>
 
 ## Create training and testing set
 
-```{r}
+```{r Create test train split}
 pixel_split <- clean_pixels |>
   select(-c(cell, directory, poly_num, train_val))|>
+  mutate(label = as.factor(label)) |>
   group_initial_split(prop = 0.75, group = key)
 
 pixels_train <- pixel_split |>
-  training() 
+  training()
 
 pixels_test <- pixel_split |>
   testing()
@@ -65,25 +62,110 @@ pixels_test <- pixel_split |>
 
 
 
-
 ## XGBoost model
 
 First we build the formula with all the predictors
 
-```{r}
-all_columns <- names(clean_pixels)
+```{r Build formula}
+all_columns <- names(clean_pixels) |>
+  sample(size=100)
 non_predictors <- c("cell", "train_val", "label", "directory", "poly_num", "key", "label","")
 predictors <- all_columns[!all_columns %in% non_predictors]
 
-#formula <- as.formula(paste("label ~", paste(predictors, collapse = " + ")))
-formula <- as.formula(paste("label ~ hsv_1"))
+formula <- as.formula(paste("label ~", paste(predictors, collapse = " + ")))
+#formula <- as.formula(paste("label ~ hsv_1"))
+formula
+```
+
+We have hundreds of predictors so we fit a single decision tree to get the top 20 layers.
+
+```{r}
+tree_rec  <- recipe(formula, data = pixels_train) |>
+  step_naomit(all_predictors()) |>
+  step_novel(all_nominal_predictors()) |>
+  step_dummy(all_nominal_predictors()) |>
+  step_zv(all_predictors()) |>
+  step_normalize(all_predictors())
+
+tree_spec <- decision_tree() |>
+  set_engine("rpart") |>
+  set_mode("classification") |>
+  set_args(cost_complexity = tune())
+
+tree_wf <- workflow() |>
+  add_model(tree_spec) |>
+  add_recipe(tree_rec)
+
+tree_grid <- grid_regular(cost_complexity(range = c(-10, -1)), levels = 20)
 ```
 
 
-Next, create a tidyverse recipe, specification, workflow, and grid of parameters to tune in the xgboost model.
+Tune the decision tree
 
 ```{r}
-xgb_recipe  <- recipe(formula, data = pixels_train) |>
+pixel_folds <- pixels_train |>
+  group_vfold_cv(v = 10, group = key, balance = "observations")
+
+tic()
+doParallel::registerDoParallel(10)
+tune_res <- tune_grid(
+  tree_wf,
+  resamples = pixel_folds,
+  grid = tree_grid,
+  control = control_grid(verbose = TRUE)
+)
+toc()
+```
+
+Visualize tuning results
+
+```{r}
+tune_res |>
+  autoplot(metric = "accuracy") +
+  theme_minimal()
+```
+
+
+```{r}
+tree_best <- tune_res |>
+  select_by_one_std_err(desc(cost_complexity), metric = "accuracy")
+
+tree_final <- tree_wf |>
+  finalize_workflow(tree_best)
+
+tree_fit <- tree_final |>
+  fit(data = pixels_train)
+
+# with usual 0.5 threshold
+tree_fit |>
+  augment(new_data = pixels_test) |>
+  conf_mat(truth = label, estimate = .pred_class)
+
+
+importance <- tree_fit |>
+  extract_fit_parsnip() |>
+  vip(num_features = 15)
+importance
+```
+
+
+```{r}
+tree_fit |>
+  extract_fit_engine() |>
+  rpart.plot(box.palette = list("gray80", "darkolivegreen3", "gold2"), tweak = 0.5)
+```
+
+
+Next, create a tidyverse recipe, specification, workflow, and grid of parameters to tune in the xgboost model. We just use the top 15 important features from the previous built tree
+
+```{r}
+top_features <- importance$data$Variable
+formula_top_features <- as.formula(paste("label ~", paste(top_features, collapse = " + ")))
+formula_top_features
+```
+
+```{r Tidymdodels workflow}
+xgb_recipe  <- recipe(formula_top_features, data = pixels_train) |>
   step_naomit(all_predictors()) |>
   step_novel(all_nominal_predictors()) |>
   step_dummy(all_nominal_predictors()) |>
@@ -91,7 +173,7 @@ xgb_recipe  <- recipe(formula, data = pixels_train) |>
   step_normalize(all_predictors())
 
 xgb_specification <- boost_tree(
-  trees = 500,
+  trees = 750,
   mtry = tune(),
   min_n = tune(),
   tree_depth = tune(),
@@ -123,7 +205,7 @@ xgb_grid <- grid_latin_hypercube(
 
 ## Create folds for K fold cross validation
 
-```{r}
+```{r K-Fold Cross validation}
 pixel_folds <- pixels_train |>
   group_vfold_cv(v = 10, group = key, balance = "observations")
 ```
@@ -133,9 +215,9 @@ Try nthread = 3 or 4 as an option in set_engine. Then try registerDoParallel(8) 
 
 Can also try racing methods to really speed things up.
 
-```{r}
+```{r, Tune parameter grid}
 tic()
-doParallel::registerDoParallel(4)
+doParallel::registerDoParallel(10)
 tune_results <- tune_grid(
   xgb_workflow,
   resamples = pixel_folds,
@@ -148,7 +230,7 @@ toc()
 
 Tuning results
 
-```{r}
+```{r Results}
 tune_results |>
   collect_metrics() |>
   filter(.metric == "accuracy") |>
@@ -172,20 +254,30 @@ xgb_final <- xgb_workflow |>
 
 xgb_fit <- xgb_final |>
   fit(data = pixels_train)
+```
 
-xgb_fit |>
-  augment(new_data = pixels_test) |>
-  accuracy(truth = label, estimate = .pred_class)
 
+Confusion matrix on the test set 
+
+```{r}
 # 0.5 threshold
 xgb_fit |>
   augment(new_data = pixels_test) |>
   conf_mat(truth = label, estimate = .pred_class)
+```
 
+
+Find the top features
+
+```{r}
 xgb_fit |>
   extract_fit_engine() |>
   vip(num_features = 25) +
   theme_minimal()
 ```
 
+
+```{r Save best fit}
+saveRDS(xgb_fit, 'clean_data/xgb_fit.rds')
+```
 
