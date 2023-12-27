@@ -35,7 +35,18 @@ set.seed(8675309)
 ## Read in ground based pixel data
 
 ```{r Read in data}
-pixels_path <- 'raw_data/pixels.rds'
+pixels_path <- 'clean_data/labeled_pixels.rds'
+
+# if(!file.exists(pixels_path)){
+#   message('Data not found')
+#   should_extract <- readline(prompt="Would you like to extract the data? (y/n) :")
+#   
+#   if(should_extract == 'y'){
+#     print('this may take a few minutes..')
+#     source('src/sample-all-pixels.R')
+#   }
+#   print(user_input)
+# }
 
 clean_pixels <- readRDS(pixels_path) |>
   group_by(key) |>
@@ -49,7 +60,7 @@ clean_pixels <- readRDS(pixels_path) |>
 
 ```{r Create test train split}
 pixel_split <- clean_pixels |>
-  select(-c(cell, directory, poly_num, train_val))|>
+  select(-c(cell, key))|>
   mutate(label = as.factor(label)) |>
   group_initial_split(prop = 0.75, group = key)
 
