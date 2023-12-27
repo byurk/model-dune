@@ -16,7 +16,7 @@ rm(list = ls())
 gc()
 ```
 
-```{r Load packages, warn=FALSE}
+```{r Load packages, warn=FALSE, message=FALSE}
 library(rpart.plot)
 library(tidyverse)
 library(tidymodels)
@@ -34,24 +34,18 @@ set.seed(8675309)
 
 ## Read in ground based pixel data
 
+
+If the data is not generated run 'src/sample-all-pixels.R' to extract pixel data from all 50 photographs using the labeled polygons
+
 ```{r Read in data}
 pixels_path <- 'clean_data/labeled_pixels.rds'
-
-# if(!file.exists(pixels_path)){
-#   message('Data not found')
-#   should_extract <- readline(prompt="Would you like to extract the data? (y/n) :")
-#   
-#   if(should_extract == 'y'){
-#     print('this may take a few minutes..')
-#     source('src/sample-all-pixels.R')
-#   }
-#   print(user_input)
-# }
 
 clean_pixels <- readRDS(pixels_path) |>
   group_by(key) |>
   slice_sample(n = 1000) |>
   ungroup()
+
+clean_pixels
 ```
 
 
@@ -60,7 +54,7 @@ clean_pixels <- readRDS(pixels_path) |>
 
 ```{r Create test train split}
 pixel_split <- clean_pixels |>
-  select(-c(cell, key))|>
+  select(-c(cell))|>
   mutate(label = as.factor(label)) |>
   group_initial_split(prop = 0.75, group = key)
 
@@ -78,8 +72,7 @@ pixels_test <- pixel_split |>
 First we build the formula with all the predictors
 
 ```{r Build formula}
-all_columns <- names(clean_pixels) |>
-  sample(size=100)
+all_columns <- names(clean_pixels) 
 non_predictors <- c("cell", "train_val", "label", "directory", "poly_num", "key", "label","")
 predictors <- all_columns[!all_columns %in% non_predictors]
 
@@ -118,7 +111,7 @@ pixel_folds <- pixels_train |>
   group_vfold_cv(v = 10, group = key, balance = "observations")
 
 tic()
-doParallel::registerDoParallel(10)
+doParallel::registerDoParallel(15)
 tune_res <- tune_grid(
   tree_wf,
   resamples = pixel_folds,
@@ -176,7 +169,7 @@ formula_top_features
 ```
 
 ```{r Tidymdodels workflow}
-xgb_recipe  <- recipe(formula_top_features, data = pixels_train) |>
+xgb_recipe  <- recipe(formula, data = pixels_train) |>
   step_naomit(all_predictors()) |>
   step_novel(all_nominal_predictors()) |>
   step_dummy(all_nominal_predictors()) |>
@@ -184,7 +177,7 @@ xgb_recipe  <- recipe(formula_top_features, data = pixels_train) |>
   step_normalize(all_predictors())
 
 xgb_specification <- boost_tree(
-  trees = 750,
+  trees = 500,
   mtry = tune(),
   min_n = tune(),
   tree_depth = tune(),
@@ -228,7 +221,7 @@ Can also try racing methods to really speed things up.
 
 ```{r, Tune parameter grid}
 tic()
-doParallel::registerDoParallel(10)
+doParallel::registerDoParallel(15)
 tune_results <- tune_grid(
   xgb_workflow,
   resamples = pixel_folds,
@@ -272,11 +265,18 @@ Confusion matrix on the test set
 
 ```{r}
 # 0.5 threshold
-xgb_fit |>
+confusion_matrix <- xgb_fit |>
   augment(new_data = pixels_test) |>
   conf_mat(truth = label, estimate = .pred_class)
+confusion_matrix
 ```
 
+Accuracy on the test set
+
+```{r}
+accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
+accuracy
+```
 
 Find the top features
 
