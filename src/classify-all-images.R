@@ -1,56 +1,47 @@
 library(sf)
 library(tictoc)
 library(glue)
+library(furr)
 library(tidymodels)
 
 # Load in the model and classify all images
 directories <- sprintf("raw_data/quadrats/quadrat%02d/", seq(34, 83, 1)) 
-
-# We will save the classified images in a folder named after the model name
 model_path <- 'xgb_fit.rds'
-model_name  <- str_split(model_path, '.rds')[[1]][1]
 
 out_directory <- glue('clean_data/{model_name}/')
-
-model <- readRDS(glue('clean_data/{model_path}'))
-
-quadrat_34 <- directories[1]
-
-features <- paste0(quadrat_34,list.files(quadrat_34, pattern = '.tif'))
+dir.create(out_directory)
 
 
-raster <- features |>
-  lapply(FUN = function(x){
-    image <- terra::rast(x)
-    ext(image) <- c(0,1,0,1)
-    return(image)
-  })
-
-quad_pred <- function(q_dir){
+classify_image <- function(feature_paths, model, out_path){
   
-  out_name <- q_dir |>
-    str_remove("raw_data/quadrats") |>
-    paste0("clean_data/quadrats_new", . , "/pred_", model_name, ".tif")
+  # We will save the classified images in a folder named after the model name
+  model_path <- 'xgb_fit.rds'
+  model_name  <- str_split(model_path, '.rds')[[1]][1]
   
-  q_files <- q_dir |>
-    list.files(full.names = TRUE, pattern = "*.tif")
   
-  q_rast <- q_files |>
-    lapply(rast_read_set_ext) |>
-    terra::rast()
+  model <- readRDS(glue('clean_data/{model_path}'))
   
-  names(q_rast) <- str_replace(q_rast |> names, "\\.(?=\\d$)", "_")
+  quadrat_34 <- directories[1]
   
-  directory <- out_name |> 
-    dirname()
+  quadrat_number <- gsub("\\D", "", quadrat_34)
   
-  if (!dir.exists(directory)) {
-    dir.create(directory)
-  }
+  out_path <- glue('clean_data/{model_name}/{quadrat_number}.tif')
   
-  q_rast |> 
-    terra::predict(xgb_fit, fun = pred_fun, filename = out_name, overwrite = TRUE)
+  features <- paste0(quadrat_34,list.files(quadrat_34, pattern = '.tif'))
   
-  return("done")
+  raster <- features |>
+    lapply(function(x){
+      image <- terra::rast(x)
+      ext(image) <- c(0,1,0,1)
+      return(image)
+    })
+  
+  raster |>
+    terra::predict(model, fun = function(x){ pull(x, .pred_class) |> as.numeric() }, filename = out_path, overwrite = TRUE)
+  
 }
+
+
+
+
 
