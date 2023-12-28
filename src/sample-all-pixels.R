@@ -51,7 +51,7 @@ pixels <-  data |>
  
 pixels <- bind_cols(pixels$feature) |>
   as_tibble() |>
-  relocate(c(label, key, label, cell), .before = hsl_1) 
+  relocate(c(label, key, label, cell, area), .before = hsl_1) 
 
 ## After manually looking at the data set these changes need to be made
 polygons_to_remove <- read_csv("clean_data/polygons_to_remove.csv", show_col_types = FALSE) |>
@@ -69,7 +69,7 @@ labeled_pixels  <- pixels |>
     !is.na(class_to_change_to) ~ class_to_change_to,
     TRUE ~ label
   )) |>
-  select(-class_to_change_to) |>
+  select(-c(class_to_change_to)) |>
   dplyr::mutate(label = case_when(label == "live Marram grass" ~ "live vegetation", TRUE ~ label)) |>
   filter(is.element(label, c("live vegetation", "dead vegetation", "sand")))
 

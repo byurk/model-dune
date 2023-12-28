@@ -7,6 +7,32 @@ date: "2023-12-25"
 ## Load packages
 
 ```{r}
-
-
+library(tidyverse)
+library(glmnet)
 ```
+
+## Load the data
+
+```{r}
+pixel_counts <- readRDS("clean_data/dgs_counts_xgb_wf_best.rds") #|>
+  #mutate(notgrass = dead + sand)
+pixel_counts
+```
+
+
+## Set the seed and split data
+
+```{r}
+set.seed(8675309)
+
+training_split <- pixel_counts |> 
+  initial_split(strata = grass)
+
+counts_train <- training_split |>
+  training()
+
+counts_test <- training_split |>
+  testing()
+```
+
+
