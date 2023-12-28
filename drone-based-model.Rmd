@@ -8,14 +8,15 @@ date: "2023-12-25"
 
 ```{r}
 library(tidyverse)
+library(sf)
 library(glmnet)
 ```
 
 ## Load the data
 
 ```{r}
-pixel_counts <- readRDS("clean_data/dgs_counts_xgb_wf_best.rds") #|>
-  #mutate(notgrass = dead + sand)
+pixel_counts <- readRDS("clean_data/dgs_counts_xgb_wf_best.rds")  |>
+  mutate(notgrass = dead + sand)
 pixel_counts
 ```
 
@@ -35,4 +36,17 @@ counts_test <- training_split |>
   testing()
 ```
 
+
+
+Multinomial regression model with lasso regularization.
+
+```{r}
+to_remove <- c("notgrass", "grass", "sand", "dead", "quadrat", "total", "quad_num","quad_quad")
+#predictors <- c('ortho_1', 'ortho_2', 'ortho_3', 'ortho_4', 'ortho_5', 'ndvi')
+#predictors <- c('ortho_1','ortho_2','ortho_3', 'ortho_4', 'ortho_5', 'ndvi', 'ortho_5_entropy', 'ortho_5_sd', 'ortho_3_entropy', 'ortho_3_sd')
+predictors <- names(quad)[!names(quad) %in% to_remove]
+
+multi_rec <- recipe(formula = as.formula(paste("dead + grass + sand ~", paste(predictors, collapse = " + "))), data = quad_train) %>%
+  step_normalize(all_predictors())
+```
 
