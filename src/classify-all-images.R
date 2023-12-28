@@ -1,47 +1,52 @@
 library(sf)
 library(tictoc)
 library(glue)
-library(furr)
+library(furrr)
+library(stringr)
 library(tidymodels)
+library(terra)
 
-# Load in the model and classify all images
-directories <- sprintf("raw_data/quadrats/quadrat%02d/", seq(34, 83, 1)) 
-model_path <- 'xgb_fit.rds'
-
-out_directory <- glue('clean_data/{model_name}/')
-dir.create(out_directory)
-
-
-classify_image <- function(feature_paths, model, out_path){
+#define function to classify all images
+classify_image <- function(feature_paths, model_name, model, out_path = NULL){
+  feature_paths <- directories[1]
   
-  # We will save the classified images in a folder named after the model name
-  model_path <- 'xgb_fit.rds'
-  model_name  <- str_split(model_path, '.rds')[[1]][1]
+  if(is.null(out_path)){
+    quadrat_number <- gsub("\\D", "", feature_paths)
+    out_path <- glue('clean_data/classified/{model_name}/{quadrat_number}.tif')
+  }
   
+  features <- list.files(feature_paths, pattern = '.tif', full.names = TRUE)
   
-  model <- readRDS(glue('clean_data/{model_path}'))
-  
-  quadrat_34 <- directories[1]
-  
-  quadrat_number <- gsub("\\D", "", quadrat_34)
-  
-  out_path <- glue('clean_data/{model_name}/{quadrat_number}.tif')
-  
-  features <- paste0(quadrat_34,list.files(quadrat_34, pattern = '.tif'))
-  
-  raster <- features |>
-    lapply(function(x){
+  layers <- features |>
+    lapply(\(x){
       image <- terra::rast(x)
       ext(image) <- c(0,1,0,1)
       return(image)
-    })
+    }) |> 
+    terra::rast()
   
-  raster |>
-    terra::predict(model, fun = function(x){ pull(x, .pred_class) |> as.numeric() }, filename = out_path, overwrite = TRUE)
+  layers |>
+    terra::predict(model, fun = \(...){ pull(predict(...), .pred_class) |> as.numeric() }, filename = out_path, overwrite = TRUE)
   
 }
 
+# Load in the model and classify all images
+directories <- sprintf("raw_data/quadrats/quadrat%02d", seq(34, 83, 1)) 
 
+model_name <- 'xgb_fit'
+model_path <- readRDS(glue('clean_data/{model_name}.tif'))
+model <- readRDS(glue('clean_data/{model_path}'))
 
+out_directory <- glue('clean_data/classified/{model_name}/')
 
+if(!dir.exists(out_directory)){
+  dir.create(out_directory)
+}
 
+#dir <- directories[1]
+#classify_image(dir, model_name, model)
+
+plan(multicore, workers = 10)
+
+ directories |>
+   future_map(\(x){classify_image(x, model_name, model)})
