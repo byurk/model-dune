@@ -34,8 +34,8 @@ classify_image <- function(feature_paths, model_name, model, out_path = NULL){
 directories <- sprintf("raw_data/quadrats/quadrat%02d", seq(34, 83, 1)) 
 
 model_name <- 'xgb_fit'
-model_path <- readRDS(glue('clean_data/{model_name}.tif'))
-model <- readRDS(glue('clean_data/{model_path}'))
+model_path <- glue('clean_data/{model_name}.rds')
+model <- readRDS(model_path)
 
 out_directory <- glue('clean_data/classified/{model_name}/')
 
@@ -46,7 +46,7 @@ if(!dir.exists(out_directory)){
 #dir <- directories[1]
 #classify_image(dir, model_name, model)
 
-plan(multicore, workers = 10)
+plan(multicore, workers = 2)
 
  directories |>
    future_map(\(x){classify_image(x, model_name, model)})
