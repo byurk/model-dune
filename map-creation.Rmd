@@ -8,3 +8,38 @@ date: "2023-12-25"
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+
+## Load libraries
+
+```{r Load packages}
+library(sf)
+library(glcm)
+library(terra)
+library(glmnet)
+source('src/orthomosaic-layer-generation.R')
+```
+
+## Generate orthomsaic features
+
+```{r}
+
+```
+
+
+
+## Read in drone orthomosaic
+
+The orthomosaic contains 6 bands. We need to generate the remaining layers needed for the model. 
+
+## Get the model
+
+```{r}
+multinomial_fit <- readRDS('clean_data/mutlinomial_fit.rds')
+coefficients <-  coef(multinomial_fit, s = 'lambda.min')
+
+predictors <-unique(lapply(coefficients, \(matrix) { names(which(matrix[,1] != 0 & !is.na(matrix[,1]))) }))[[1]]
+layers <- setdiff(predictors, "(Intercept)")
+
+layers
+```
+
