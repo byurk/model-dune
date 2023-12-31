@@ -24,16 +24,34 @@ library(stars)
 counts_path <- "clean_data/training.rds"
 
 pixel_counts <- readRDS(counts_path)  |>
-  mutate(notgrass = dead + sand)
+  mutate(notgrass = dead + sand) |>
+  as_tibble()
 
 pixel_counts
 ```
 
+Multinomial regression model with lasso regularization.
+
+```{r}
+non_predictors <- c("notgrass", "grass", "sand", "dead", "quadrat", "total", "quad_num","quad_quad", 'quadrant_key')
+predictors <- names(pixel_counts)[!names(pixel_counts) %in% non_predictors]
+predictors
+```
 
 ## Set the seed and split data
 
 ```{r}
+formula <- as.formula(paste0('dead + grass + sand ~ ', paste0(predictors, collapse =" + ")))
+
+rec <- recipe(formula = formula, data = pixel_counts)|>
+  step_normalize(all_predictors())
+
+prepped_recipe <- prep(rec)
+
+pixel_counts <- bake(prepped_recipe, new_data = NULL)
+
 set.seed(8675309)
+
 
 training_split <- pixel_counts |> 
   initial_split(strata = grass)
@@ -46,12 +64,6 @@ counts_test <- training_split |>
 ```
 
 
-Multinomial regression model with lasso regularization.
-
-```{r}
-non_predictors <- c("notgrass", "grass", "sand", "dead", "quadrat", "total", "quad_num","quad_quad")
-predictors <- names(pixel_counts)[!names(pixel_counts) %in% non_predictors]
-```
 
 
 Formulate response and predictors

@@ -47,7 +47,7 @@ ortho_data<- quadrants |>
 corner_points <- tibble(json_path = sprintf("raw_data/quadrats/quadrat%02d/points.json", seq(34, 83, 1)))
 
 model_name <- 'xgb_fit'
-image_files <-tibble(classified = list.files(glue('clean_data/classified/{model_name}')[[1]], pattern ='.tif', full.names = TRUE))
+image_files <- tibble(classified = sprintf(glue("clean_data/classified/{model_name}/%02d.tif"), seq(34, 63, 1)))
 num_image_files <-length(image_files$classified)
 
 data <- bind_cols(corner_points[1:num_image_files,], image_files) |>
@@ -94,13 +94,6 @@ ground_data_nested <- ground_quadrants |>
   mutate(aggregates = list(extract_polygon_pixels(classified, polygon = polys, extent = c(0,1,0,1), include_polygon_info = TRUE))) |>
   ungroup()
 
-pixels_path <- 'clean_data/labeled_pixels.rds'
-pixels <- readRDS(pixels_path) |>
-  mutate(label = as.factor(label))
-
-levels <- levels(pixels$label) |>
-  map(\(x)(str_replace(x," ", "_"))) |> 
-  unlist()
 
 ground_data <- bind_rows(ground_data_nested$aggregates) |>
   rename(class = lyr1) |>
@@ -114,11 +107,12 @@ ground_data <- bind_rows(ground_data_nested$aggregates) |>
     ) |>
   ungroup()
 
-names(ground_data) <- c('quadrant_key', levels)
+names(ground_data) <- c('quadrant_key', 'dead', 'grass', 'sand')
 
 
 training <- ground_data |>
-  left_join(ortho_data, by ='quadrant_key')
+  left_join(ortho_data, by ='quadrant_key') |>
+  drop_na()
 
 # Save the data
 saveRDS(training, 'clean_data/training.rds')
