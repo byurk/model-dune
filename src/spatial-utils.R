@@ -1,5 +1,32 @@
 library(glcm)
 library(sf)
+library(glue)
+library(stringr)
+library(tidymodels)
+library(terra)
+
+
+classify_image <- function(feature_path_directory, model_name, model, out_path = NULL, overwrite = FALSE){
+
+  if(is.null(out_path)){
+    quadrat_number <- gsub("\\D", "", feature_path_directory)
+    out_path <- glue('clean_data/classified/{model_name}/{quadrat_number}.tif')
+  }
+
+  features <- list.files(feature_path_directory, pattern = '.tif', full.names = TRUE)
+
+  layers <- features |>
+    lapply(\(x){
+      image <- terra::rast(x)
+      ext(image) <- c(0,1,0,1)
+      return(image)
+    }) |>
+    terra::rast()
+
+  layers |>
+    terra::predict(model, fun = \(...){ pull(predict(...), .pred_class) |> as.numeric() }, filename = out_path, overwrite = overwrite)
+  return(out_path)
+}
 
 add_ndvi <- function(ortho, red_band = 3L, nir_band = 5L){
   ndvi <- (ortho[[nir_band]] - ortho[[red_band]]) / (ortho[[nir_band]] + ortho[[red_band]])
@@ -149,6 +176,46 @@ label_me_points_json_to_sf <- function(json_path){
   return(labeled_points_sf)
 }
 
+
+extract_polygon_pixels <- function(image_path, polygon_path, include_polygon_info = TRUE , extent = c(0, 4032, 0, 3024), polygon = NULL) {
+  
+  image <- terra::rast(image_path)
+  
+  quadrat_number <- gsub("\\D", "", image_path)
+  
+  # If there is just one layer we need to fix the names, eg contrast etc
+  # if (length(names(image)) == 1) {
+  # 
+  #   feature_split <- str_split(image_path, pattern = "/")[[1]]
+  #   feature_file <-  tail(feature_split, 1)
+  #   feature <- str_split(feature_file, ".tif")[[1]][1]
+  # 
+  #   names(image) <- feature
+  # }
+  
+  if(is.null(polygon)) {
+    polygon <- label_me_json_to_sf(polygon_path)
+  }
+  
+  poly_info <- polygon |>
+    st_drop_geometry() |>
+    mutate(ID = row_number()) |>
+    mutate(key = paste0(quadrat_number,"_", ID))
+  
+  pixels <- terra::extract(image, polygon, cells = TRUE, extent = extent) 
+  
+  if(include_polygon_info){
+    pixels <- pixels |>
+      left_join(poly_info, by = "ID") |>
+      (\(x) x[, !colnames(x) %in% c('ID', 'imagePth'), drop = FALSE])() |>
+      as_tibble()
+  } else {
+    pixels <- pixels |>
+      (\(x) x[, !colnames(x) %in% c('ID', 'cell'), drop = FALSE])()
+  }
+  
+  return(pixels)
+}
 
 
 

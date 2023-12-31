@@ -1,7 +1,7 @@
 library(sf)
 library(tidyverse)
 library(tictoc)
-source("src/extract-polygon-pixels.R")
+source("src/spatial-utils.R")
 
 tic()
 ## Check to ensure each directory has all the layers the first directory has
