@@ -2,7 +2,6 @@ library(tictoc)
 library(furrr)
 source('src/classify-image.R')
 
-
 directories <- sprintf("raw_data/quadrats/quadrat%02d", seq(34, 83, 1)) 
 
 model_name <- 'xgb_fit'
@@ -15,10 +14,10 @@ if(!dir.exists(out_directory)){
   dir.create(out_directory)
 }
 
-dir <- directories[1]
-classify_image(dir, model_name, model)
+# dir <- directories[1]
+# classify_image(dir, model_name, model)
 
-# plan(multicore, workers = 2)
-# 
-#  directories |>
-#    future_map(\(x){classify_image(x, model_name, model)})
+plan(multicore, workers = 5)
+
+ directories |>
+   future_map(\(x){classify_image(x, model_name, model, overwrite = TRUE)})

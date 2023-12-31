@@ -7,7 +7,7 @@ add_ndvi <- function(ortho, red_band = 3L, nir_band = 5L){
   c(ortho, ndvi)
 }
 
-add_contrast <- function(ortho, layer = 7L, statistic = 'contrast', window = 11L){
+get_contrast <- function(ortho, layer = 7L, statistic = 'contrast', window = 11L){
   raster<- ortho[[layer]]
   layer_name <- names(ortho)[layer]
   
@@ -19,13 +19,15 @@ add_contrast <- function(ortho, layer = 7L, statistic = 'contrast', window = 11L
   )
   
   names(texture) <- paste0(layer_name, '_', statistic, '_W', window)
-  c(ortho, texture)
+  return(terra::rast(texture))
 }
 
 # quadrant (0-3) is a region within the quadrat
 # See https://docs.google.com/document/d/1fZsO6068yEvLJnU3if5tpVF9bU1i7cqadtJvj_2KteU/edit
 
 create_quadrant_polygon <- function(quadrant, c_coords, i_coords, ii_coords) {
+  #print(c_coords)
+  #print(i_coords)
   # quadrant <- 0
   # 
   # # Assign values to c_coords, i_coords, and ii_coords
@@ -58,8 +60,10 @@ create_quadrant_polygon <- function(quadrant, c_coords, i_coords, ii_coords) {
   
   
   coords <-  lapply(coords, st_coordinates)
+  #print(coords)
   
   polygon <- st_polygon(coords)
+  #print(polygon)
   
   return(list(polygon))
 }
@@ -71,6 +75,51 @@ cross_product <- function(x, y) {
 
 to_3d <- function(t) {
   return(c(t[1], t[2], 0))
+}
+
+
+#function that converts matrix to polygon
+polygon_from_matrix <- function(point_matrix, image_height) {
+  #transform y so origin is at bottom left corner of image
+  point_matrix[, 2] <- image_height - point_matrix[, 2]
+  
+  #repeat first point at end
+  point_matrix <- rbind(point_matrix, point_matrix[1,])
+  point_matrix_list <- list(point_matrix)
+  #create sf polygon
+  poly <- st_polygon(point_matrix_list)
+  return(poly)
+}
+
+label_me_json_to_sf <- function(json_path) {
+  
+  #read in json file from labelme
+  labeled_polys_list <- read_json(json_path, simplifyVector = TRUE)
+  labeled_polys_list$imageData <- NULL
+  
+  #get the shapes data frame with all the stuff we want
+  labeled_polys_tib <-
+    labeled_polys_list$shapes |>
+    as_tibble() |>
+    mutate(imagePath = labeled_polys_list$imagePath)
+  
+  image_width <- labeled_polys_list$imageWidth
+  image_height <- labeled_polys_list$imageHeight
+  
+  # add polygons to the tibble
+  labeled_polys_tib <- labeled_polys_tib |>
+    mutate(polys = lapply(points, polygon_from_matrix, image_height = image_height)) |>
+    dplyr::select(-points)
+  
+  # create the sf object and remove unneeded variables
+  labeled_polys_sf <-
+    labeled_polys_tib |> 
+    st_as_sf(sf_column_name = "polys") |>
+    dplyr::select(-c(flags, group_id, shape_type))
+  
+  labeled_polys_sf$area = st_area(labeled_polys_sf$polys)
+  
+  return(labeled_polys_sf)
 }
 
 label_me_points_json_to_sf <- function(json_path){
@@ -120,6 +169,16 @@ scale_polygon <- function(polygon, old_xmin = 0, old_xmax = 4032, old_ymin = 0, 
   return(new_polygon)
 }
 
-polygon <- ground_quadrants[2,]$geometry[[1]]
-scaled <- scale_polygon(polygon)
-scaled
+sanitize_polygon <- function(polygon)  {
+  # Extract coordinates
+  coords <- st_coordinates(polygon)[,-3][,-3]
+  
+  # Create a new polygon with scaled coordinates
+  new_polygon <- st_polygon(list(coords))
+  
+  return(new_polygon)
+}
+
+#polygon <- ground_quadrants[2,]$geometry[[1]]
+#scaled <- scale_polygon(polygon)
+#scaled

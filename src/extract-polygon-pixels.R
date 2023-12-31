@@ -7,7 +7,7 @@ extract_polygon_pixels <- function(image_path, polygon_path, include_polygon_inf
   
   quadrat_number <- gsub("\\D", "", image_path)
   
-  #If there is just one layer we need to fix the names, eg contrast etc
+  # If there is just one layer we need to fix the names, eg contrast etc
   # if (length(names(image)) == 1) {
   # 
   #   feature_split <- str_split(image_path, pattern = "/")[[1]]
@@ -31,11 +31,11 @@ extract_polygon_pixels <- function(image_path, polygon_path, include_polygon_inf
   if(include_polygon_info){
     pixels <- pixels |>
       left_join(poly_info, by = "ID") |>
-      (\(x) x[, !colnames(x) %in% c('ID', 'imagePath'), drop = FALSE])() |>
+      (\(x) x[, !colnames(x) %in% c('ID', 'imagePth'), drop = FALSE])() |>
       as_tibble()
   } else {
     pixels <- pixels |>
-      dplyr::select(-c(ID, cell))
+      (\(x) x[, !colnames(x) %in% c('ID', 'cell'), drop = FALSE])()
   }
   
   return(pixels)
