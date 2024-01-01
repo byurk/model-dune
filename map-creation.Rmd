@@ -16,7 +16,6 @@ library(sf)
 library(glcm)
 library(terra)
 library(glmnet)
-source('src/orthomosaic-layer-generation.R')
 ```
 
 ## Read in drone orthomosaic
@@ -24,7 +23,7 @@ source('src/orthomosaic-layer-generation.R')
 ```{r}
 multinomial_fit <- readRDS('clean_data/mutlinomial_fit.rds')
 coefficients <-  coef(multinomial_fit, s = 'lambda.min')
-cosefficients
+coefficients
 ```
 
 ## Read in proccessed orthomsaic 
@@ -43,7 +42,7 @@ Define prediction function
 ```{r}
 predict_ortho <- function(model, x){
     x <- as.matrix(x)
-    p <- predict(model, newx = x, type = "response", s = 'lamda.min')[,,1]
+    p <- predict(model, newx = x, type = "response", s = 'lambda.min')[,,1]
   
   if(is.matrix(p)){
     p <- as_tibble(p)
@@ -59,7 +58,7 @@ Predict across the entire orthomosaic
 ```{r}
 composition <- processed_ortho |>
   predict(multinomial_fit, fun = predict_ortho, filename = "clean_data/orthomosaic_composition.tif", overwrite = TRUE)
-compostion
+composition
 ```
 
 

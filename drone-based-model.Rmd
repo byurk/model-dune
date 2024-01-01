@@ -13,6 +13,7 @@ library(tidyverse)
 library(glue)
 library(ggtern)
 library(jsonlite)
+library(tidymodels)
 library(sf)
 library(stars)
 ```
