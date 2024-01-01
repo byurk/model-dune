@@ -47,7 +47,7 @@ ortho_data<- quadrants |>
 corner_points <- tibble(json_path = sprintf("raw_data/quadrats/quadrat%02d/points.json", seq(34, 83, 1)))
 
 model_name <- 'xgb_fit'
-image_files <- tibble(classified = sprintf(glue("clean_data/classified/{model_name}/%02d.tif"), seq(34, 68, 1)))
+image_files <- tibble(classified = sprintf(glue("clean_data/classified/{model_name}/%02d.tif"), seq(34, 73, 1)))
 num_image_files <-length(image_files$classified)
 
 data <- bind_cols(corner_points[1:num_image_files,], image_files) |>
