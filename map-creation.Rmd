@@ -22,6 +22,7 @@ library(glmnet)
 
 ```{r}
 multinomial_fit <- readRDS('clean_data/mutlinomial_fit.rds')
+prepped_recipe <- readRDS('clean_data/prepped_recipe.rds')
 coefficients <-  coef(multinomial_fit, s = 'lambda.min')
 coefficients
 ```
@@ -41,7 +42,10 @@ Define prediction function
 
 ```{r}
 predict_ortho <- function(model, x){
-    x <- as.matrix(x)
+    x <- as.matrix(x) |> as_tibble()
+    x <- bake(prepped_recipe, new_data = x ) |> 
+      as.matrix()
+    
     p <- predict(model, newx = x, type = "response", s = 'lambda.min')[,,1]
   
   if(is.matrix(p)){
@@ -57,7 +61,7 @@ Predict across the entire orthomosaic
 
 ```{r}
 composition <- processed_ortho |>
-  predict(multinomial_fit, fun = predict_ortho, filename = "clean_data/orthomosaic_composition.tif", overwrite = TRUE)
+  predict(multinomial_fit, fun = predict_ortho, filename = "outputs/orthomosaic_composition.tif", overwrite = TRUE)
 composition
 ```
 

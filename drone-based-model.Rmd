@@ -49,6 +49,9 @@ rec <- recipe(formula = formula, data = pixel_counts)|>
 
 prepped_recipe <- prep(rec)
 
+## Save recipe for when predicting on the orthomosaic
+saveRDS(prepped_recipe, 'clean_data/prepped_recipe.rds')
+
 pixel_counts <- bake(prepped_recipe, new_data = NULL)
 
 set.seed(8675309)
