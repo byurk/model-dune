@@ -3,5 +3,6 @@ raw_data
 outputs
 ground-based-model_files
 ground-based-model.html
+drone-based-model.html
 
 .Rproj.user
