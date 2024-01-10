@@ -14,7 +14,7 @@ ortho_with_ndvi <- ortho |>
 
 contrast <- ortho_with_ndvi |>
   raster::brick() |>
-  get_contrast()
+  get_contrast(layer = 7L, window = 5L)
 
 o <- c(ortho_with_ndvi, contrast)
 

@@ -34,7 +34,7 @@ add_ndvi <- function(ortho, red_band = 3L, nir_band = 5L){
   c(ortho, ndvi)
 }
 
-get_contrast <- function(ortho, layer = 7L, statistic = 'contrast', window = 11L){
+get_contrast <- function(ortho, layer = 7L, statistic = 'contrast', window = 5L){
   raster<- ortho[[layer]]
   layer_name <- names(ortho)[layer]
   
