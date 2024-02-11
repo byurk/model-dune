@@ -6,8 +6,6 @@ date: "2023-12-24"
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-## Set the working direcotry using R render syntax
-##setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 ```
 
 ## Load all packages and remove all objects from memory
@@ -23,7 +21,7 @@ library(tidyverse)
 library(tidymodels)
 library(vip)
 library(tictoc)
-source('./src/spatial-utils.R')
+source('code/src/spatial-utils.R')
 ```
 
 ## Set the seed for reproducibility
@@ -75,7 +73,7 @@ pixels_test <- pixel_split |>
 First we build the formula with all the predictors
 
 ```{r Build formula}
-all_columns <- names(clean_pixels) |>
+all_columns <- names(clean_pixels)# |>
   sample(size =  110)
 non_predictors <- c("cell", "train_val", "label", "directory", "poly_num", "key", "label", "area")
 predictors <- all_columns[!all_columns %in% non_predictors]
