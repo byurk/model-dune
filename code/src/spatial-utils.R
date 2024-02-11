@@ -177,7 +177,7 @@ label_me_points_json_to_sf <- function(json_path){
 }
 
 
-extract_polygon_pixels <- function(image_path, polygon_path, include_polygon_info = TRUE , extent = c(0, 4032, 0, 3024), polygon = NULL) {
+extract_polygon_pixels <- function(image_path, polygon, include_polygon_info = TRUE , extent = c(0, 4032, 0, 3024)) {
   
   image <- terra::rast(image_path)
   
@@ -193,7 +193,7 @@ extract_polygon_pixels <- function(image_path, polygon_path, include_polygon_inf
   #   names(image) <- feature
   # }
   
-  if(is.null(polygon)) {
+  if(is.character(polygon)) {
     polygon <- label_me_json_to_sf(polygon_path)
   }
   
@@ -207,7 +207,7 @@ extract_polygon_pixels <- function(image_path, polygon_path, include_polygon_inf
   if(include_polygon_info){
     pixels <- pixels |>
       left_join(poly_info, by = "ID") |>
-      (\(x) x[, !colnames(x) %in% c('ID', 'imagePth'), drop = FALSE])() |>
+      (\(x) x[, !colnames(x) %in% c('ID', 'imagePath'), drop = FALSE])() |>
       as_tibble()
   } else {
     pixels <- pixels |>

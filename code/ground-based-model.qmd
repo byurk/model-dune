@@ -6,6 +6,8 @@ date: "2023-12-24"
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+## Set the working direcotry using R render syntax
+##setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 ```
 
 ## Load all packages and remove all objects from memory
@@ -21,6 +23,7 @@ library(tidyverse)
 library(tidymodels)
 library(vip)
 library(tictoc)
+source('./src/spatial-utils.R')
 ```
 
 ## Set the seed for reproducibility
@@ -29,9 +32,17 @@ library(tictoc)
 set.seed(8675309)
 ```
 
-## Read in ground based pixel data
+## Extract all pixels 
 
 If the data is not generated run 'src/sample-all-pixels.R' to extract pixel data from all 50 photographs using the labeled polygons
+
+
+You can use the function `extract_polygon_pixels` to extract the pixels from the polygons. The function takes three arguments: the path to the image or a polygon sf object, the path to the polygons, and a boolean to include the polygon data. The function returns a list of data frames with the pixels from the polygons. 
+
+```{r}
+extract_polygon_pixels
+```
+
 
 ```{r Read in data}
 pixels_path <- 'clean_data/labeled_pixels.rds'

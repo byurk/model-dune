@@ -1,9 +1,10 @@
 library(sf)
 library(tidyverse)
 library(tictoc)
-source("src/spatial-utils.R")
+source("code/src/spatial-utils.R")
 
 tic()
+
 ## Check to ensure each directory has all the layers the first directory has
 files <- list.files("raw_data/quadrats/quadrat34/", pattern = '.tif')
 directories <- sprintf("raw_data/quadrats/quadrat%02d/", seq(34, 83, 1))
