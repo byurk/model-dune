@@ -2,7 +2,7 @@ library(raster)
 library(tictoc)
 library(sf)
 library(terra)
-source('src/spatial-utils.R')
+source('code/src/spatial-utils.R')
 
 tic()
 
