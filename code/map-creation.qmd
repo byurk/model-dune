@@ -8,7 +8,6 @@ date: "2023-12-25"
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-
 ## Load libraries
 
 ```{r Load packages}
@@ -27,7 +26,7 @@ coefficients <-  coef(multinomial_fit, s = 'lambda.min')
 coefficients
 ```
 
-## Read in proccessed orthomsaic 
+## Read in proccessed orthomsaic
 
 ```{r, warning=FALSE}
 processed_ortho_path <- 'clean_data/processed_ortho.tif'
@@ -64,5 +63,3 @@ composition <- processed_ortho |>
   predict(multinomial_fit, fun = predict_ortho, filename = "outputs/orthomosaic_composition.tif", overwrite = TRUE)
 composition
 ```
-
-
