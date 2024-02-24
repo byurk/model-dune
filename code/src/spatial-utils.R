@@ -183,16 +183,6 @@ extract_polygon_pixels <- function(image_path, polygon, include_polygon_info = T
   
   quadrat_number <- gsub("\\D", "", image_path)
   
-  # If there is just one layer we need to fix the names, eg contrast etc
-  # if (length(names(image)) == 1) {
-  # 
-  #   feature_split <- str_split(image_path, pattern = "/")[[1]]
-  #   feature_file <-  tail(feature_split, 1)
-  #   feature <- str_split(feature_file, ".tif")[[1]][1]
-  # 
-  #   names(image) <- feature
-  # }
-  
   if(is.character(polygon)) {
     polygon <- label_me_json_to_sf(polygon_path)
   }

@@ -20,6 +20,7 @@ library(rpart.plot)
 library(tidyverse)
 library(tidymodels)
 library(vip)
+library(glue)
 library(tictoc)
 source('code/src/spatial-utils.R')
 ```
@@ -30,19 +31,25 @@ source('code/src/spatial-utils.R')
 set.seed(8675309)
 ```
 
-## Extract all pixels 
+## Extract all pixels
 
 If the data is not generated run 'src/sample-all-pixels.R' to extract pixel data from all 50 photographs using the labeled polygons
 
+You can use the function `extract_polygon_pixels` to extract the pixels from polygons drawn in `label-me`. The function takes three arguments:
 
-You can use the function `extract_polygon_pixels` to extract the pixels from the polygons. The function takes three arguments: the path to the image or a polygon sf object, the path to the polygons, and a boolean to include the polygon data. The function returns a list of data frames with the pixels from the polygons. 
+1. the path to the image 
+2. a polygon sf object or the path to the polygons json file 
+3. a boolean to include the polygon data (IDs of polygons etc)
+4. the extent of the image 
+
+The function returns a list of data frames with the pixels from the polygons.
 
 ```{r}
 extract_polygon_pixels
 ```
 
 
-```{r Read in data}
+```{r}
 pixels_path <- 'clean_data/labeled_pixels.rds'
 
 clean_pixels <- readRDS(pixels_path) |>
@@ -55,7 +62,7 @@ clean_pixels
 
 ## Create training and testing set
 
-```{r Create test train split}
+```{r}
 pixel_split <- clean_pixels |>
   dplyr::select(-c(cell))|>
   mutate(label = as.factor(label)) |>
@@ -68,35 +75,43 @@ pixels_test <- pixel_split |>
   testing()
 ```
 
+
+```{r}
+pixels_train |>
+  head()
+pixels_test |> 
+  head()
+```
+
 ## XGBoost model
 
 First we build the formula with all the predictors
 
-```{r Build formula}
+```{r}
 all_columns <- names(clean_pixels)# |>
-  sample(size =  110)
+  #sample(size =  110)
+
 non_predictors <- c("cell", "train_val", "label", "directory", "poly_num", "key", "label", "area")
 predictors <- all_columns[!all_columns %in% non_predictors]
 
 formula <- as.formula(paste("label ~", paste(predictors, collapse = " + ")))
 #formula <- as.formula(paste("label ~ hsv_1"))
-formula
 ```
 
 We have hundreds of predictors so we fit a single decision tree to get the top 20 layers.
 
 ```{r}
-tree_rec  <- recipe(formula, data = pixels_train) |>
+tree_spec <- decision_tree() |>
+  set_egine("rpart") |>
+  set_mode("classification") |>
+  set_args(cost_complexity = tune())
+
+tree_rec <- recipe(formula, data = pixels_train) |>
   step_naomit(all_predictors()) |>
   step_novel(all_nominal_predictors()) |>
   step_dummy(all_nominal_predictors()) |>
   step_zv(all_predictors()) |>
   step_normalize(all_predictors())
-
-tree_spec <- decision_tree() |>
-  set_egine("rpart") |>
-  set_mode("classification") |>
-  set_args(cost_complexity = tune())
 
 tree_wf <- workflow() |>
   add_model(tree_spec) |>
@@ -145,7 +160,6 @@ tree_fit |>
   augment(new_data = pixels_test) |>
   conf_mat(truth = label, estimate = .pred_class)
 
-
 importance <- tree_fit |>
   extract_fit_parsnip() |>
   vip(num_features = 15)
@@ -158,7 +172,6 @@ tree_fit |>
   rpart.plot(box.palette = list("gray80", "darkolivegreen3", "gold2"), tweak = 0.5)
 ```
 
-Next, create a tidyverse recipe, specification, workflow, and grid of parameters to tune in the xgboost model. We just use the top 15 important features from the previous built tree
 
 ```{r}
 top_features <- importance$data$Variable
@@ -166,18 +179,11 @@ formula_top_features <- as.formula(paste("label ~", paste(top_features, collapse
 formula_top_features
 ```
 
-```{r Tidymdodels workflow}
-xgb_recipe  <- recipe(formula, data = pixels_train) |>
-  step_naomit(all_predictors()) |>
-  step_novel(all_nominal_predictors()) |>
-  step_dummy(all_nominal_predictors()) |>
-  step_zv(all_predictors()) |>
-  step_normalize(all_predictors())
-
+```{r}
 xgb_specification <- boost_tree(
   trees = 750,
-  mtry = tune(),
   min_n = tune(),
+  mtry = tune(),
   tree_depth = tune(),
   learn_rate = tune(),
   loss_reduction = tune(),
@@ -186,6 +192,20 @@ xgb_specification <- boost_tree(
   set_engine("xgboost", nthread = 5) |>
   set_mode("classification")
 
+data <- pixels_train[c(predictors, "label")]
+
+# We use update_role because formula eats up ram usage  if there are many predictors(will throw an error)
+# https://github.com/tidymodels/recipes/issues/548
+
+xgb_recipe  <- recipe(data) |> 
+  update_role(everything()) |>
+  update_role(label, new_role = "outcome") |> 
+  step_naomit(all_predictors()) |>
+  step_novel(all_nominal_predictors()) |>
+  step_dummy(all_nominal_predictors()) |>
+  step_zv(all_predictors()) |>
+  step_normalize(all_predictors()) |>
+  
 xgb_workflow <- workflow() |>
   add_model(xgb_specification) |>
   add_recipe(xgb_recipe)
@@ -194,7 +214,7 @@ prepped_recipe <- prep(xgb_recipe)
 baked_recipe <- bake(prepped_recipe, new_data = NULL)
 
 xgb_grid <- grid_latin_hypercube(
-  finalize(mtry(),baked_recipe),
+  finalize(mtry(), baked_recipe),
   min_n(),
   tree_depth(),
   learn_rate(),
@@ -206,7 +226,7 @@ xgb_grid <- grid_latin_hypercube(
 
 ## Create folds for K fold cross validation
 
-```{r K-Fold Cross validation}
+```{r}
 pixel_folds <- pixels_train |>
   group_vfold_cv(v = 10, group = key, balance = "observations")
 ```
@@ -215,7 +235,7 @@ Try nthread = 3 or 4 as an option in set_engine. Then try registerDoParallel(8) 
 
 Can also try racing methods to really speed things up.
 
-```{r, Tune parameter grid}
+```{r}
 tic()
 doParallel::registerDoParallel(15)
 tune_results <- tune_grid(
@@ -229,7 +249,7 @@ toc()
 
 Tuning results
 
-```{r Results}
+```{r}
 tune_results |>
   collect_metrics() |>
   filter(.metric == "accuracy") |>
@@ -241,7 +261,7 @@ tune_results |>
   theme_minimal()
 ```
 
-Train the model with best hyperparmeters based on accuracy and then calculate testing error.
+Train the model with best hyper-parameters based on accuracy and then calculate testing error.
 
 ```{r}
 xgb_best <- tune_results |>
@@ -254,7 +274,8 @@ xgb_fit <- xgb_final |>
   fit(data = pixels_train)
 ```
 
-```{r Save best fit}
+```{r}
+today <- Sys.Date()
 saveRDS(xgb_fit, 'clean_data/xgb_fit.rds')
 ```
 
