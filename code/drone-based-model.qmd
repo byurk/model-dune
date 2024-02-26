@@ -6,16 +6,25 @@ date: "2023-12-25"
 
 ## Load packages
 
-```{r, warning=FALSE}
+```{r}
+#| warning=FALSE
 library(glmnet)
 library(raster)
 library(tidyverse)
 library(glue)
 library(ggtern)
+library(nnet)
 library(jsonlite)
 library(tidymodels)
 library(sf)
 library(stars)
+```
+
+
+## Set the seed and split data
+
+```{r} 
+set.seed(8675309)
 ```
 
 ## Load the data
@@ -24,42 +33,50 @@ library(stars)
 counts_path <- "clean_data/training.rds"
 jack_data <- readRDS(counts_path)
 
-pixel_counts <- jack_data |>
+pixel_counts_clean <- jack_data |>
   mutate(notgrass = dead + sand) |>
   mutate(total = grass +dead + sand) |>
   mutate(grass = grass/total, dead = dead/total, sand = sand/total) |>
-  as_tibble()
-
-# options(digits =3)
-# jmm<- pixel_counts |>
-#   select(c(dead, grass, sand, ortho_1, ortho_2, ortho_3, ortho_4, ortho_5, ortho_6, ndvi ))
+  as_tibble() 
 ```
+
 
 Multinomial regression model with lasso regularization.
 
+
 ```{r}
 non_predictors <- c("notgrass", "grass", "sand", "dead", "quadrat", "total", "quad_num","quad_quad", 'quadrant_key')
-predictors <- names(pixel_counts)[!names(pixel_counts) %in% non_predictors]
-predictors
+
+#predictors <- names(pixel_counts_clean)[!names(pixel_counts_clean) %in% non_predictors]
+predictors <-  c(
+                 'ortho_1_mean',
+                 'ortho_2_mean',
+                 'ortho_3_mean',
+                 'ortho_4_mean',
+                 'ortho_5_mean',
+                 'ndvi_mean',
+                 'ndvi_sd', 
+                 'ortho_1_sd',
+                 'ortho_2_sd',
+                 'ortho_3_sd',
+                 'ortho_4_sd',
+                 'ortho_5_sd'
+                 )
 ```
 
-## Set the seed and split data
 
 ```{r}
-formula <- as.formula(paste0('dead + grass + sand ~ ', paste0(predictors, collapse =" + ")))
+formula <- as.formula(paste0('grass + dead + sand ~ ', paste0(predictors, collapse =" + ")))
 
-rec <- recipe(formula = formula, data = pixel_counts)|>
+rec <- recipe(formula = formula, data = pixel_counts_clean)|>
   step_normalize(all_predictors())
 
 prepped_recipe <- prep(rec)
 
 ## Save recipe for when predicting on the orthomosaic
-saveRDS(prepped_recipe, 'clean_data/prepped_recipe.rds')
+#saveRDS(prepped_recipe, 'clean_data/prepped_recipe.rds')
 
 pixel_counts <- bake(prepped_recipe, new_data = NULL)
-
-set.seed(8675309)
-
 
 training_split <- pixel_counts |> 
   initial_split(strata = grass)
@@ -71,6 +88,7 @@ counts_test <- training_split |>
   testing()
 ```
 
+
 Formulate response and predictors
 
 ```{r}
@@ -81,39 +99,14 @@ y <- counts_train |>
 x <- counts_train |>
   dplyr::select(predictors) |>
   as.matrix()
-
-
 #lambda_grid <- 10 ^ (seq(0, -20, by = -20/100))
 ```
 
-Fit the model with cross validation
+Fit multinomial regression model with cross validation
 
 ```{r}
 fit <- cv.glmnet(x, y , family = "multinomial")
 ```
-
-## Save fit
-
-```{r}
-# multinomial_fit <- fit
-# saveRDS(multinomial_fit, 'clean_data/mutlinomial_fit.rds')
-```
-
-## Plot the object fit
-
-```{r}
-plot(fit)
-```
-
-```{r}
-options(scipen = 999)
-coefficients <- coef(fit, s = "lambda.min")
-coefficients
-glm_fitted_coef <- predict(fit, type = "coefficients", s = 'lambda.min')
-glm_fitted_coef
-```
-
-## Test response
 
 ```{r}
 test_y <- counts_test |>
@@ -136,6 +129,65 @@ prediction <- predict(fit, newx = test_x, s = "lambda.min", type = 'response') |
   rename(dead.pred = dead.1, grass.pred = grass.1, sand.pred = sand.1)
 ```
 
+Fit Dirichlet regression model
+
+```{r}
+#| warning: false
+train_data <- counts_train
+train_data$Y <- DR_data(train_data[c('grass', 'sand', 'dead')])
+
+dirichlet_fit <- DirichReg(Y ~ 
+                     ortho_1_mean + 
+                     ortho_2_mean + 
+                     ortho_2_mean + 
+                     ortho_3_mean + 
+                     ortho_4_mean +
+                     ortho_5_mean +
+                     ndvi_mean +
+                     ndvi_sd +
+                     ortho_1_sd +
+                     ortho_2_sd +
+                     ortho_2_sd +
+                     ortho_3_sd +
+                     ortho_4_sd +
+                     ortho_5_sd,
+                     data = train_data, model = "alternative")
+```
+
+
+```{r}
+#| warning: false
+test_data <- counts_train
+test_data$Y <- DR_data(test_data[c('grass', 'sand', 'dead')])
+
+prediction_dirichlet <- predict(dirichlet_fit, test_data) |>
+  as_tibble() |>
+  rename(grass = `V1`, sand = `V2`, dead = `V3`)
+
+truth <- test_data |>
+  dplyr::select(grass, dead, sand)
+
+truth_longer <- truth |>
+  mutate(id = row_number()) |>
+  pivot_longer(cols = c(grass, dead, sand))
+              
+# When calculating the RMSE use use the number of quadrants as the denominator
+# If we just use the regular RMSE we triple count the quadrants (grass, dead, sand per quadrant)
+number_of_quadrants <- nrow(test_data)
+
+rmse <- prediction_dirichlet |>
+  mutate(id = row_number())|>
+  pivot_longer(cols = c(grass, dead, sand)) |>
+  left_join(truth_longer, by = c('id', 'name')) |>
+  mutate(error_squared = (value.x - value.y)^2) |>
+  summarize(rmse = sqrt(sum(error_squared) / number_of_quadrants )) |>
+  pull(rmse)
+
+
+print('RMSE Dirichlet')
+print(rmse)
+```
+
 Extract test RMSE
 
 ```{r}
@@ -149,8 +201,28 @@ error <- bind_cols(prediction, test_y) |>
 
 rmse <- sqrt(sum(error$squard_error)/n)
 
-print('Total root mean squared error')
+print('RMSE Multinomial')
 print(rmse)
+```
+
+
+## Save fit
+
+```{r}
+# multinomial_fit <- fit
+# saveRDS(multinomial_fit, 'clean_data/mutlinomial_fit.rds')
+```
+
+## Plot the object fit
+
+```{r}
+plot(fit)
+```
+
+```{r}
+options(scipen = 999)
+coefficients <- coef(fit, s = "lambda.min")
+glm_fitted_coef <- predict(fit, type = "coefficients", s = 'lambda.min')
 ```
 
 Plot on ternary diagram
@@ -162,6 +234,7 @@ error |>
   geom_abline() +
   theme_minimal()
 ```
+
 
 ```{r}
 data <- bind_cols(prediction, test_y) |>

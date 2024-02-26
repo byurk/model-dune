@@ -22,6 +22,7 @@ library(tidymodels)
 library(vip)
 library(glue)
 library(tictoc)
+library(xgboost)
 source('code/src/spatial-utils.R')
 ```
 
@@ -35,19 +36,18 @@ set.seed(8675309)
 
 If the data is not generated run 'src/sample-all-pixels.R' to extract pixel data from all 50 photographs using the labeled polygons
 
-You can use the function `extract_polygon_pixels` to extract the pixels from polygons drawn in `label-me`. The function takes three arguments:
+You can use the function `extract_polygon_pixels` to extract the pixels from polygons drawn in `label-me`. The function takes four arguments:
 
-1. the path to the image 
-2. a polygon sf object or the path to the polygons json file 
-3. a boolean to include the polygon data (IDs of polygons etc)
-4. the extent of the image 
+1.  the path to the image
+2.  a polygon sf object or the path to the polygons json file
+3.  a boolean to include the polygon data (IDs of polygons etc)
+4.  the extent of the image
 
 The function returns a list of data frames with the pixels from the polygons.
 
 ```{r}
 extract_polygon_pixels
 ```
-
 
 ```{r}
 pixels_path <- 'clean_data/labeled_pixels.rds'
@@ -75,7 +75,6 @@ pixels_test <- pixel_split |>
   testing()
 ```
 
-
 ```{r}
 pixels_train |>
   head()
@@ -94,19 +93,29 @@ all_columns <- names(clean_pixels)# |>
 non_predictors <- c("cell", "train_val", "label", "directory", "poly_num", "key", "label", "area")
 predictors <- all_columns[!all_columns %in% non_predictors]
 
-formula <- as.formula(paste("label ~", paste(predictors, collapse = " + ")))
+#formula <- as.formula(paste("label ~", paste(predictors, collapse = " + ")))
 #formula <- as.formula(paste("label ~ hsv_1"))
+
+forumula
 ```
 
 We have hundreds of predictors so we fit a single decision tree to get the top 20 layers.
 
 ```{r}
 tree_spec <- decision_tree() |>
-  set_egine("rpart") |>
+  set_engine("rpart") |>
   set_mode("classification") |>
   set_args(cost_complexity = tune())
 
-tree_rec <- recipe(formula, data = pixels_train) |>
+data <- pixels_train |>
+  dplyr::select(all_of(c(predictors, 'label') ))
+
+# We use update_role because formula eats up ram usage  if there are many predictors(will throw an error)
+# https://github.com/tidymodels/recipes/issues/548
+
+tree_rec <- recipe(data) |> 
+  update_role(everything()) |>
+  update_role(label, new_role = "outcome") |> 
   step_naomit(all_predictors()) |>
   step_novel(all_nominal_predictors()) |>
   step_dummy(all_nominal_predictors()) |>
@@ -122,7 +131,7 @@ tree_grid <- grid_regular(cost_complexity(range = c(-10, -1)), levels = 20)
 
 Tune the decision tree
 
-```{r}
+```{r Tuning decision tree}
 pixel_folds <- pixels_train |>
   group_vfold_cv(v = 10, group = key, balance = "observations")
 
@@ -172,7 +181,6 @@ tree_fit |>
   rpart.plot(box.palette = list("gray80", "darkolivegreen3", "gold2"), tweak = 0.5)
 ```
 
-
 ```{r}
 top_features <- importance$data$Variable
 formula_top_features <- as.formula(paste("label ~", paste(top_features, collapse = " + ")))
@@ -181,7 +189,7 @@ formula_top_features
 
 ```{r}
 xgb_specification <- boost_tree(
-  trees = 750,
+  trees = 1000,
   min_n = tune(),
   mtry = tune(),
   tree_depth = tune(),
@@ -194,7 +202,7 @@ xgb_specification <- boost_tree(
 
 data <- pixels_train[c(predictors, "label")]
 
-# We use update_role because formula eats up ram usage  if there are many predictors(will throw an error)
+# We use update_role because formula eats up ram usage if there are too many predictors(will throw an error)
 # https://github.com/tidymodels/recipes/issues/548
 
 xgb_recipe  <- recipe(data) |> 
@@ -204,7 +212,7 @@ xgb_recipe  <- recipe(data) |>
   step_novel(all_nominal_predictors()) |>
   step_dummy(all_nominal_predictors()) |>
   step_zv(all_predictors()) |>
-  step_normalize(all_predictors()) |>
+  step_normalize(all_predictors())
   
 xgb_workflow <- workflow() |>
   add_model(xgb_specification) |>
@@ -235,7 +243,7 @@ Try nthread = 3 or 4 as an option in set_engine. Then try registerDoParallel(8) 
 
 Can also try racing methods to really speed things up.
 
-```{r}
+```{r Training XGBoost model}
 tic()
 doParallel::registerDoParallel(15)
 tune_results <- tune_grid(
@@ -243,13 +251,13 @@ tune_results <- tune_grid(
   resamples = pixel_folds,
   grid = xgb_grid,
   control = control_grid(verbose = TRUE)
-)
+  )
 toc()
 ```
 
 Tuning results
 
-```{r}
+```{r Tuning results}
 tune_results |>
   collect_metrics() |>
   filter(.metric == "accuracy") |>
@@ -263,7 +271,7 @@ tune_results |>
 
 Train the model with best hyper-parameters based on accuracy and then calculate testing error.
 
-```{r}
+```{r Finalize best model and create workflow}
 xgb_best <- tune_results |>
   select_best(metric = "accuracy")
 
@@ -274,10 +282,12 @@ xgb_fit <- xgb_final |>
   fit(data = pixels_train)
 ```
 
-```{r}
+```{r Save the model}
 today <- Sys.Date()
-saveRDS(xgb_fit, 'clean_data/xgb_fit.rds')
+saveRDS(xgb_fit, glue('clean_data/xgb_fit_{today}.rds'))
+xgb_fit <- readRDS('clean_data/xgb_fit_2024-02-25.rds')
 ```
+
 
 Confusion matrix on the test set
 
@@ -286,8 +296,13 @@ Confusion matrix on the test set
 confusion_matrix <- xgb_fit |>
   augment(new_data = pixels_test) |>
   conf_mat(truth = label, estimate = .pred_class)
-
 confusion_matrix
+```
+
+```{r}
+xgb_fit |>
+  augment(new_data = pixels_test) |>
+  accuracy(truth = label, estimate = .pred_class)
 ```
 
 Accuracy on the test set
