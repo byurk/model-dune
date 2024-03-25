@@ -1,3 +1,4 @@
+
 ---
 title: "ground-based-model"
 output: html_document
@@ -96,7 +97,7 @@ predictors <- all_columns[!all_columns %in% non_predictors]
 #formula <- as.formula(paste("label ~", paste(predictors, collapse = " + ")))
 #formula <- as.formula(paste("label ~ hsv_1"))
 
-forumula
+predictors
 ```
 
 We have hundreds of predictors so we fit a single decision tree to get the top 20 layers.
@@ -112,6 +113,9 @@ data <- pixels_train |>
 
 # We use update_role because formula eats up ram usage  if there are many predictors(will throw an error)
 # https://github.com/tidymodels/recipes/issues/548
+
+formula<- as.formula(paste("label ~", paste(predictors, collapse = " + ")))
+recipe <- recipe(label ~ ., data = pixels_train)
 
 tree_rec <- recipe(data) |> 
   update_role(everything()) |>
@@ -183,7 +187,8 @@ tree_fit |>
 
 ```{r}
 top_features <- importance$data$Variable
-formula_top_features <- as.formula(paste("label ~", paste(top_features, collapse = " + ")))
+formula_top_features <- 
+  as.formula(paste("label ~", paste(top_features, collapse = " + ")))
 formula_top_features
 ```
 
@@ -320,3 +325,11 @@ xgb_fit |>
   vip(num_features = 25) +
   theme_minimal()
 ```
+
+```{r}
+top_features <- xgb_fit |>
+  extract_fit_engine() |>
+  vip(num_features = 25)
+top_features$data
+```
+

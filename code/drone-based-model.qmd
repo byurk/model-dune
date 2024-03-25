@@ -12,6 +12,7 @@ library(glmnet)
 library(raster)
 library(tidyverse)
 library(glue)
+library(DirichletReg)
 library(ggtern)
 library(nnet)
 library(jsonlite)
@@ -20,10 +21,9 @@ library(sf)
 library(stars)
 ```
 
-
 ## Set the seed and split data
 
-```{r} 
+```{r}
 set.seed(8675309)
 ```
 
@@ -40,9 +40,7 @@ pixel_counts_clean <- jack_data |>
   as_tibble() 
 ```
 
-
 Multinomial regression model with lasso regularization.
-
 
 ```{r}
 non_predictors <- c("notgrass", "grass", "sand", "dead", "quadrat", "total", "quad_num","quad_quad", 'quadrant_key')
@@ -63,7 +61,6 @@ predictors <-  c(
                  'ortho_5_sd'
                  )
 ```
-
 
 ```{r}
 formula <- as.formula(paste0('grass + dead + sand ~ ', paste0(predictors, collapse =" + ")))
@@ -87,7 +84,6 @@ counts_train <- training_split |>
 counts_test <- training_split |>
   testing()
 ```
-
 
 Formulate response and predictors
 
@@ -154,7 +150,6 @@ dirichlet_fit <- DirichReg(Y ~
                      data = train_data, model = "alternative")
 ```
 
-
 ```{r}
 #| warning: false
 test_data <- counts_train
@@ -171,16 +166,17 @@ truth_longer <- truth |>
   mutate(id = row_number()) |>
   pivot_longer(cols = c(grass, dead, sand))
               
-# When calculating the RMSE use use the number of quadrants as the denominator
-# If we just use the regular RMSE we triple count the quadrants (grass, dead, sand per quadrant)
-number_of_quadrants <- nrow(test_data)
+# The RMSE is the square root of average squared difference between observed and predicted value
+# Each residual is a vector in R^3
+
+num_of_observations <- nrow(test_data) # Number of residuals = Number of observations
 
 rmse <- prediction_dirichlet |>
   mutate(id = row_number())|>
   pivot_longer(cols = c(grass, dead, sand)) |>
   left_join(truth_longer, by = c('id', 'name')) |>
   mutate(error_squared = (value.x - value.y)^2) |>
-  summarize(rmse = sqrt(sum(error_squared) / number_of_quadrants )) |>
+  summarize(rmse = sqrt(sum(error_squared) / num_of_observations )) |>
   pull(rmse)
 
 
@@ -205,7 +201,6 @@ print('RMSE Multinomial')
 print(rmse)
 ```
 
-
 ## Save fit
 
 ```{r}
@@ -223,6 +218,7 @@ plot(fit)
 options(scipen = 999)
 coefficients <- coef(fit, s = "lambda.min")
 glm_fitted_coef <- predict(fit, type = "coefficients", s = 'lambda.min')
+coefficients
 ```
 
 Plot on ternary diagram
@@ -234,7 +230,6 @@ error |>
   geom_abline() +
   theme_minimal()
 ```
-
 
 ```{r}
 data <- bind_cols(prediction, test_y) |>
