@@ -56,7 +56,8 @@ You should either create the raw_data, clean_data, and outputs directories and/o
 
  - The model chosen is a multinomial regression with regularization, but any model can be used.
  - First run ```code/src/generate-orthomsaic-features.R``` to extract the features from the orthomosaic and save them in the ```clean_data``` directory.
- - Fit the multinomial regression model using the features.
+ - Next, run ```code/src/create-training-set.R``` to create ```training.rds``` that contains coverage estimates from the close-up quadrats and the multispectral data from the drone-based quadarts.
+ - Fit the multinomial regression model using  data from ```training.rds```.
  - Save the workflow and model (using tidymodel conventions) in ```clean_data```.
  - Run the script ```code/src/predict-orthomosaic.R``` to predict the surface composition of the entire orthomosaic map and save the map in the ```outputs``` directory.
 
