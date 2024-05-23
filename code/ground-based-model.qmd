@@ -1,4 +1,3 @@
-
 ---
 title: "ground-based-model"
 output: html_document
@@ -293,7 +292,6 @@ saveRDS(xgb_fit, glue('clean_data/xgb_fit_{today}.rds'))
 xgb_fit <- readRDS('clean_data/xgb_fit_2024-02-25.rds')
 ```
 
-
 Confusion matrix on the test set
 
 ```{r}
@@ -332,4 +330,3 @@ top_features <- xgb_fit |>
   vip(num_features = 25)
 top_features$data
 ```
-

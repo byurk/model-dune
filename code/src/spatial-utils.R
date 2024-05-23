@@ -4,6 +4,7 @@ library(glue)
 library(stringr)
 library(tidymodels)
 library(terra)
+library(jsonlite)
 
 
 classify_image <- function(feature_path_directory, model_name, model, out_path = NULL, overwrite = FALSE){
@@ -184,7 +185,7 @@ extract_polygon_pixels <- function(image_path, polygon, include_polygon_info = T
   quadrat_number <- gsub("\\D", "", image_path)
   
   if(is.character(polygon)) {
-    polygon <- label_me_json_to_sf(polygon_path)
+    polygon <- label_me_json_to_sf(polygon)
   }
   
   poly_info <- polygon |>

@@ -2,7 +2,7 @@ project:
   title: "model dune"
   execute-dir: project
 
-editor: visual
+editor: source
 
 
 
