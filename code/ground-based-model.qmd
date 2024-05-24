@@ -53,12 +53,20 @@ extract_polygon_pixels
 pixels_path <- 'clean_data/labeled_pixels.rds'
 
 clean_pixels <- readRDS(pixels_path) |>
+  select(!contains("hsl") | contains("_3") | contains("_L3")) |> #drop reduntant hs values
   group_by(key) |>
   slice_sample(n = 1000) |>
   ungroup()
 
 clean_pixels
 ```
+
+```{r}
+clean_pixels %>% 
+  count(label) %>% 
+  mutate(prop = n/sum(n))
+```
+
 
 ## Create training and testing set
 
