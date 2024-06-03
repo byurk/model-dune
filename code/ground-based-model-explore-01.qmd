@@ -1,18 +1,22 @@
 ---
-title: "ground-based-model-explore"
+title: "ground-based-model-explore-01"
 output: html_document
 date: "2024-05-24"
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-```
+## Introduction
+
+We will go through several steps to select predictors for a final XGBoost Model. This is the first step, in which we will use all of the 273 available predictors.
 
 ## Load all packages and remove all objects from memory
 
 ```{r}
 rm(list = ls())
 gc()
+```
+
+```{r}
+model_version = "01" # string used for file names
 ```
 
 ```{r Load packages, warn=FALSE, message=FALSE}
@@ -35,7 +39,6 @@ set.seed(8675309)
 
 If the data is not generated run 'src/sample-all-pixels.R' to extract pixel data from all 50 photographs using the labeled polygons
 
-
 ```{r}
 pixels_path <- 'clean_data/labeled_pixels.rds'
 
@@ -45,9 +48,9 @@ clean_pixels <- readRDS(pixels_path) |>
   group_by(key) |>
   slice_sample(n = 1000) |>
   ungroup()
-
-clean_pixels
 ```
+
+Summary of the pixel data we will use.
 
 ```{r}
 clean_pixels %>% 
@@ -75,6 +78,8 @@ pix_folds <- pix_train %>%
 ```
 
 ## XGBoost model
+
+### Setup
 
 ```{r}
 xgb_rec  <- recipe(label ~ . , data = pix_train) %>%
@@ -116,7 +121,12 @@ xgb_grid <- grid_latin_hypercube(
 )
 ```
 
+### Tuning
+
 ```{r}
+#| cache: true
+#| cache-lazy: false
+
 set.seed(84321)
 library(tictoc)
 tic()
@@ -144,6 +154,8 @@ tune_res %>%
   theme_minimal()
 ```
 
+Best model.
+
 ```{r}
 xgb_best <- tune_res %>%
   select_best(metric = "accuracy")
@@ -151,25 +163,46 @@ xgb_best <- tune_res %>%
 xgb_final <- xgb_wf %>%
   finalize_workflow(xgb_best)
 
+xgb_best
+
+tune_res %>%
+  collect_metrics() %>%
+  filter(.metric == "accuracy") %>%
+  select(mean, std_error, mtry:sample_size) %>%
+  arrange(desc(mean))
+```
+
+## Fit the best model to the entire training set
+
+```{r}
 xgb_fit <- xgb_final %>%
   fit(data = pix_train)
 
-xgb_fit %>%
-  augment(new_data = pix_test) %>%
-  accuracy(truth = label, estimate = .pred_class)
+# xgb_fit %>%
+#   augment(new_data = pix_test) %>%
+#   accuracy(truth = label, estimate = .pred_class)
+# 
+# # with usual 0.5 threshold
+# xgb_fit %>%
+#   augment(new_data = pix_test) %>%
+#   conf_mat(truth = label, estimate = .pred_class)
+```
 
-# with usual 0.5 threshold
-xgb_fit %>%
-  augment(new_data = pix_test) %>%
-  conf_mat(truth = label, estimate = .pred_class)
+## Plot variable importances
 
+```{r}
 xgb_fit %>%
   extract_fit_engine() %>%
   vip(num_features = 50, geom = "point") +
   theme_minimal()
+
+ggsave(paste0("outputs/xgb_vip_", model_version, ".pdf"), width = 14, height = 22)
 ```
+
+## Save the model and tuning results
 
 ```{r}
 #tune_res %>% saveRDS("clean_data/tune_res_all_pred.rds")
-tune_res %>% saveRDS("clean_data/tune_res_all_pred_new.rds")
+tune_res %>% saveRDS(paste0("clean_data/tune_res_", model_version, ".rds"))
+xgb_fit %>% saveRDS(paste0("outputs/xgb_model_", model_version, ".rds"))
 ```
