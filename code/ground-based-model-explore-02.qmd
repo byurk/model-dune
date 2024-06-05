@@ -1,12 +1,18 @@
 ---
-title: "ground-based-model-explore-01"
+title: "ground-based-model-explore-02"
 output: html_document
 date: "2024-05-24"
 ---
 
 ## Introduction
 
-We will go through several steps to select predictors for a final XGBoost Model. This is the first step, in which we will use all of the 273 available predictors.
+We will go through several steps to select predictors for a final XGBoost Model. This is the second step, in which we will use 21 of the predictors. In the first step, we used all of the 273 available predictors, and obtained a cross-validation accuracy (mean) of 0.957 with standard error of 0.0055.
+
+The predictors were chosen from the top 50 predictors from the first model (based on VIP). Starting with the highest importance, the predictors that had the highest importance that represented a new layer / preprocssing method combination were selected. This resulted in the following predictors being selected: hsv_1, rgb_seg_SR12_RR4.5_MD30_hsv_1, hsv_2, rgb_seg_SR12_RR4.5_MD70_hsv_2, rgb_seg_SR12_RR7.5_MD50_3, rgb_contrast_L1_W11, hsl_contrast_L3_W11, yuv_contrast_L1_W11, rgb_contrast_L3_W11, rgb_contrast_L2_W11, hsv_contrast_L2_W11, lab_contrast_L1_W11, hsv_contrast_L3_W11, yuv_contrast_L2_W11, rgb_seg_SR12_RR4.5_MD70_lab_3, rgb_seg_SR12_RR7.5_MD70_1.
+
+The first and second layers from HSV transformed segmented images appeared many times (with different hyperparameters) in the top 50. Two additional representatives were chosen from these features for each. These additional predictors were chosen to have relatively high importance while having hyperparameter values that were most different from the predictors that had already been selected. The chosen features include rgb_seg_SR3_RR4.5_MD50_hsv_1, rgb_seg_SR6_RR7.5_MD50_hsv_1, rgb_seg_SR3_RR4.5_MD50_hsv_2, rgb_seg_SR6_RR7.5_MD30_hsv_2.
+
+The predictor rgb_seg_SR6_RR7.5_MD50_3 was chosen for a similar reason.
 
 ## Load all packages and remove all objects from memory
 
@@ -16,7 +22,7 @@ gc()
 ```
 
 ```{r}
-model_version = "01" # string used for file names
+model_version = "02" # string used for file names
 ```
 
 ```{r Load packages, warn=FALSE, message=FALSE}
@@ -82,10 +88,28 @@ pix_folds <- pix_train %>%
 ### Setup
 
 ```{r}
-xgb_rec  <- recipe(label ~ . , data = pix_train) %>%
-  step_rm(key) %>%
-  step_rm(cell) %>%
-  step_rm(area) %>%
+xgb_rec  <- recipe(label ~ hsv_1 +
+                     rgb_seg_SR12_RR4.5_MD30_hsv_1 +
+                     hsv_2 +
+                     rgb_seg_SR12_RR4.5_MD70_hsv_2 +
+                     rgb_seg_SR12_RR7.5_MD50_3 +
+                     rgb_contrast_L1_W11 +
+                     hsl_contrast_L3_W11 +
+                     yuv_contrast_L1_W11 +
+                     rgb_contrast_L3_W11 +
+                     rgb_contrast_L2_W11 +
+                     hsv_contrast_L2_W11 +
+                     lab_contrast_L1_W11 +
+                     hsv_contrast_L3_W11 +
+                     yuv_contrast_L2_W11 +
+                     rgb_seg_SR12_RR4.5_MD70_lab_3 +
+                     rgb_seg_SR12_RR7.5_MD70_1 +  
+                     rgb_seg_SR3_RR4.5_MD50_hsv_1 +
+                     rgb_seg_SR6_RR7.5_MD50_hsv_1 +
+                     rgb_seg_SR3_RR4.5_MD50_hsv_2 +
+                     rgb_seg_SR6_RR7.5_MD30_hsv_2 + 
+                     rgb_seg_SR6_RR7.5_MD50_3,
+                   data = pix_train) %>%
   step_naomit(all_predictors()) %>%
   step_novel(all_nominal_predictors()) %>%
   step_dummy(all_nominal_predictors()) %>%
