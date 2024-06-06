@@ -1,0 +1,267 @@
+---
+title: "ground-based-model-explore-03"
+output: html_document
+date: "2024-05-24"
+---
+
+## Introduction
+
+We will go through several steps to select predictors for a final XGBoost Model. This is the third step, in which we will eliminate predictors from the set of 21 predictors we chose in step 2. In the first step, we used all of the 273 available predictors, and obtained a cross-validation accuracy (mean) of 0.957 with standard error of 0.0055. In the second step, we used 21 predictors and obtained a cross-validation accuracy (mean) of 0.959 with standard error of 0.0063. 
+
+We will now eliminate predictors from the set of 21 predictors to see if we can simplify the model without sacrificing accuracy. Our strategy will be to examine the correlation between predictors and to remove predictors that appear to be redundant. We will use the Variable Importance Plot (VIP) from step 2 to decide which redundant predictors to remove.
+
+We removed 5 contras features in this step, resulting in a model with 16 predictors.
+
+## Load all packages and remove all objects from memory
+
+```{r}
+rm(list = ls())
+gc()
+```
+
+```{r}
+model_version = "03" # string used for file names
+```
+
+```{r Load packages, warn=FALSE, message=FALSE}
+library(tidyverse)
+library(tidymodels)
+library(vip)
+library(corrr)
+library(glue)
+library(tictoc)
+library(xgboost)
+source('code/src/spatial-utils.R')
+```
+
+## Set the seed for reproducibility
+
+```{r Set the seed}
+set.seed(8675309)
+```
+
+## Extract all pixels
+
+If the data is not generated run 'src/sample-all-pixels.R' to extract pixel data from all 50 photographs using the labeled polygons
+
+```{r}
+pixels_path <- 'clean_data/labeled_pixels.rds'
+
+clean_pixels <- readRDS(pixels_path) |>
+  select(!contains("hsl") | contains("_3") | contains("_L3")) |> #drop reduntant hs values
+  mutate(label = as.factor(label)) |>
+  group_by(key) |>
+  slice_sample(n = 1000) |>
+  ungroup()
+```
+
+Summary of the pixel data we will use.
+
+```{r}
+clean_pixels %>% 
+  count(label) %>% 
+  mutate(prop = n/sum(n))
+```
+
+
+## Create training and testing set and cross-validation folds
+
+```{r}
+pix_split <- clean_pixels |>
+  group_initial_split(prop = 0.75, group = key)
+
+pix_train <- pix_split |>
+  training()
+
+pix_test <- pix_split |>
+  testing()
+```
+
+```{r}
+pix_folds <- pix_train %>%
+  group_vfold_cv(v = 10, group = key, balance = "observations")
+```
+
+## Correlation Matrix
+
+There are some predictors that have high positive correlations (close to 1). These tend to involve contrast features.
+
+```{r}
+cor_matrix <- pix_train %>% select(hsv_1, rgb_seg_SR12_RR4.5_MD30_hsv_1, hsv_2, 
+                                   rgb_seg_SR12_RR4.5_MD70_hsv_2, rgb_seg_SR12_RR7.5_MD50_3,
+                                   rgb_contrast_L1_W11, hsl_contrast_L3_W11, yuv_contrast_L1_W11,
+                                   rgb_contrast_L3_W11, rgb_contrast_L2_W11, hsv_contrast_L2_W11,
+                                   lab_contrast_L1_W11, hsv_contrast_L3_W11, yuv_contrast_L2_W11,
+                                   rgb_seg_SR12_RR4.5_MD70_lab_3, rgb_seg_SR12_RR7.5_MD70_1,
+                                   rgb_seg_SR3_RR4.5_MD50_hsv_1, rgb_seg_SR6_RR7.5_MD50_hsv_1,
+                                   rgb_seg_SR3_RR4.5_MD50_hsv_2, rgb_seg_SR6_RR7.5_MD30_hsv_2,
+                                   rgb_seg_SR6_RR7.5_MD50_3) %>%
+  correlate()
+
+cor_matrix %>%
+  rearrange() %>%
+  shave() %>%
+  rplot() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+The correlation between rgb_contrast_L2_WW and 5 other variables exceeds 0.996. Of these 6 variables, rgb_contrast_L2_WW had the highest importance in step 2, so we remove the other 5 variables from the model.
+
+```{r}
+cor_matrix %>%
+  shave() %>%
+  pivot_longer(-term, names_to = "term2", values_to = "r") %>%
+  drop_na() %>%
+  filter(r > 0.95) %>%
+  arrange(desc(r)) %>%
+  pivot_wider(names_from = term2, values_from = r)
+```
+
+
+## XGBoost model
+
+### Setup
+
+```{r}
+xgb_rec  <- recipe(label ~ hsv_1 +
+                     rgb_seg_SR12_RR4.5_MD30_hsv_1 +
+                     hsv_2 +
+                     rgb_seg_SR12_RR4.5_MD70_hsv_2 +
+                     rgb_seg_SR12_RR7.5_MD50_3 +
+                     # rgb_contrast_L1_W11 +
+                     # hsl_contrast_L3_W11 +
+                     # yuv_contrast_L1_W11 +
+                     # rgb_contrast_L3_W11 +
+                     rgb_contrast_L2_W11 +
+                     hsv_contrast_L2_W11 +
+                     lab_contrast_L1_W11 +
+                     # hsv_contrast_L3_W11 +
+                     yuv_contrast_L2_W11 +
+                     rgb_seg_SR12_RR4.5_MD70_lab_3 +
+                     rgb_seg_SR12_RR7.5_MD70_1 +  
+                     rgb_seg_SR3_RR4.5_MD50_hsv_1 +
+                     rgb_seg_SR6_RR7.5_MD50_hsv_1 +
+                     rgb_seg_SR3_RR4.5_MD50_hsv_2 +
+                     rgb_seg_SR6_RR7.5_MD30_hsv_2 + 
+                     rgb_seg_SR6_RR7.5_MD50_3,
+                   data = pix_train) %>%
+  step_naomit(all_predictors()) %>%
+  step_novel(all_nominal_predictors()) %>%
+  step_dummy(all_nominal_predictors()) %>%
+  step_zv(all_predictors()) %>%
+  step_normalize(all_predictors())
+```
+
+```{r}
+xgb_spec <- boost_tree(
+  trees = 1000,
+  mtry = tune(),
+  min_n = tune(),
+  tree_depth = tune(),
+  learn_rate = tune(),
+  loss_reduction = tune(),
+  sample_size = tune()
+) %>%
+  set_engine("xgboost", nthread = 4) %>%
+  set_mode("classification")
+
+xgb_wf <- workflow() %>%
+  add_model(xgb_spec) %>%
+  add_recipe(xgb_rec)
+
+xgb_grid <- grid_latin_hypercube(
+  finalize(mtry(), bake(xgb_rec %>% prep(), new_data = NULL)),
+  min_n(),
+  tree_depth(),
+  learn_rate(),
+  loss_reduction(),
+  sample_size = sample_prop(),
+  size = 24
+)
+```
+
+### Tuning
+
+```{r}
+#| cache: true
+#| cache-lazy: false
+
+set.seed(84321)
+library(tictoc)
+tic()
+doParallel::registerDoParallel(6)
+tune_res <- tune_grid(
+  xgb_wf,
+  resamples = pix_folds,
+  grid = xgb_grid,
+  control = control_grid(verbose = TRUE)
+)
+toc()
+```
+
+Tuning results
+
+```{r}
+tune_res %>%
+  collect_metrics() %>%
+  filter(.metric == "accuracy") %>%
+  pivot_longer(mtry:sample_size, names_to = "parameter", values_to = "value") %>%
+  rename(accuracy = mean) %>%
+  ggplot(aes(value, accuracy, color = parameter)) +
+  geom_point(show.legend = FALSE) +
+  facet_wrap(~ parameter, scales = "free_x") +
+  theme_minimal()
+```
+
+Best model.
+
+```{r}
+xgb_best <- tune_res %>%
+  select_best(metric = "accuracy")
+
+xgb_final <- xgb_wf %>%
+  finalize_workflow(xgb_best)
+
+xgb_best
+
+tune_res %>%
+  collect_metrics() %>%
+  filter(.metric == "accuracy") %>%
+  select(mean, std_err, mtry:sample_size) %>%
+  arrange(desc(mean))
+```
+
+## Fit the best model to the entire training set
+
+```{r}
+xgb_fit <- xgb_final %>%
+  fit(data = pix_train)
+
+# xgb_fit %>%
+#   augment(new_data = pix_test) %>%
+#   accuracy(truth = label, estimate = .pred_class)
+# 
+# # with usual 0.5 threshold
+# xgb_fit %>%
+#   augment(new_data = pix_test) %>%
+#   conf_mat(truth = label, estimate = .pred_class)
+```
+
+## Plot variable importances
+
+```{r}
+xgb_fit %>%
+  extract_fit_engine() %>%
+  vip(num_features = 50, geom = "point") +
+  theme_minimal()
+
+ggsave(paste0("outputs/xgb_vip_", model_version, ".pdf"), width = 14, height = 22)
+```
+
+## Save the model and tuning results
+
+```{r}
+#tune_res %>% saveRDS("clean_data/tune_res_all_pred.rds")
+tune_res %>% saveRDS(paste0("clean_data/tune_res_", model_version, ".rds"))
+xgb_fit %>% saveRDS(paste0("outputs/xgb_model_", model_version, ".rds"))
+```
