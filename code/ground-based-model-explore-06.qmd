@@ -1,14 +1,14 @@
 ---
-title: "ground-based-model-explore-04"
+title: "ground-based-model-explore-06"
 output: html_document
 date: "2024-05-24"
 ---
 
 ## Introduction
 
-We will go through several steps to select predictors for a final XGBoost Model. This is the fourth step, in which we will begin eliminating predictors one at a time from the set of 16 predictors we had selected at the end of step 3. In step 3 we had a mean cross-validation accuracy of 0.959 (like step 2) with a standard error of 0.00653.
+We will go through several steps to select predictors for a final XGBoost Model. This is the sixth step, in which we will continue eliminating predictors using variable importance. In step 5 we had a mean cross-validation accuracy of 0.959 (like steps 2-5) with a standard error of 0.00579.
 
-We will eliminate predictors one at a time using variable importance, starting with yuv_contrast_L2_W11
+In this step we will eliminate lab_contrast_L1_W11, resulting in a 13 predictor model.
 
 ## Load all packages and remove all objects from memory
 
@@ -18,7 +18,7 @@ gc()
 ```
 
 ```{r}
-model_version = "04" # string used for file names
+model_version = "06" # string used for file names
 ```
 
 ```{r Load packages, warn=FALSE, message=FALSE}
@@ -95,10 +95,10 @@ cor_matrix <- pix_train %>% select(hsv_1,
                                    # yuv_contrast_L1_W11,
                                    # rgb_contrast_L3_W11, 
                                    rgb_contrast_L2_W11, 
-                                   hsv_contrast_L2_W11,
-                                   lab_contrast_L1_W11, 
+                                   # hsv_contrast_L2_W11,
+                                   # lab_contrast_L1_W11, 
                                    # hsv_contrast_L3_W11, 
-                                   yuv_contrast_L2_W11,
+                                   # yuv_contrast_L2_W11,
                                    rgb_seg_SR12_RR4.5_MD70_lab_3, 
                                    rgb_seg_SR12_RR7.5_MD70_1,
                                    rgb_seg_SR3_RR4.5_MD50_hsv_1, 
@@ -143,8 +143,8 @@ xgb_rec  <- recipe(label ~ hsv_1 +
                      # yuv_contrast_L1_W11 +
                      # rgb_contrast_L3_W11 +
                      rgb_contrast_L2_W11 +
-                     hsv_contrast_L2_W11 +
-                     lab_contrast_L1_W11 +
+                     # hsv_contrast_L2_W11 +
+                     # lab_contrast_L1_W11 +
                      # hsv_contrast_L3_W11 +
                      # yuv_contrast_L2_W11 +
                      rgb_seg_SR12_RR4.5_MD70_lab_3 +
