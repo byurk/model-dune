@@ -22,7 +22,9 @@ conflict_prefer("lag", "dplyr")
 
 ```{r}
 dem <- terra::rast("clean_data/drone_sitched/dem.tif")
-coverage <- terra::rast('clean_data/drone_sitched/pred_map.tif')
+
+coverage <- terra::rast('clean_data/drone_sitched/pred_map.tif') |>
+  terra::project(crs(dem))
 
 mask <- terra::vect('clean_data/drone_sitched/Mask_Grass_Paper.shp') |>
   terra::project(crs(dem))
@@ -46,5 +48,29 @@ create_plot <- function(raster, title, color_scale = viridis::viridis) {
 create_plot(dem, "Digital Elevation Model with Mask")
 create_plot(coverage, "Vegetation Coverage with Mask")
 create_plot(slope, "Slope with Mask", color_scale = terrain.colors)
-
 ```
+
+## Correlation
+
+```{r}
+slope_masked <- slope |>
+  terra::resample(coverage, method="bilinear") |>
+  terra::mask(mask, inverse=TRUE) |>
+  as_tibble()
+
+sand_df <- coverage |> 
+  terra::mask(mask, inverse=TRUE) |>
+  as_tibble()
+
+nrow(slope_masked)
+nrow(sand_df)
+```
+
+
+
+
+
+
+
+
+
