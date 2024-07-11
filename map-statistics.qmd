@@ -3,6 +3,14 @@ title: "map-statistics"
 format: html
 ---
 
+# Remove environment
+
+```{r}
+rm(list = ls())
+gc()  
+```
+
+
 # Read in libraries
 
 ```{r}
@@ -23,28 +31,34 @@ conflict_prefer("lag", "dplyr")
 ```{r}
 dem <- terra::rast("clean_data/drone_sitched/dem.tif")
 
-coverage <- terra::rast('clean_data/drone_sitched/pred_map.tif') |>
-  terra::project(crs(dem))
+CRS <- crs(dem)
 
-mask <- terra::vect('clean_data/drone_sitched/Mask_Grass_Paper.shp') |>
-  terra::project(crs(dem))
+coverage <- terra::rast('clean_data/drone_sitched/pred_map.tif') |>
+  terra::project(CRS)
+
 
 if(!file.exists('outputs/slope.tif')){
   slope <- terra::terrain(dem, v="slope", unit="degrees") |>
-    terra::project(crs(dem))
+    terra::project(CRS)
   
   terra::writeRaster(slope, 'outputs/slope.tif')
 } else {
   slope <- terra::rast('outputs/slope.tif') |>
-    terra::project(crs(dem))
+    terra::project(CRS)
 }
+
+
+mask <- terra::vect('clean_data/drone_sitched/Mask_Grass_Paper.shp') |>
+  terra::project(CRS)
+
 ```
 
 # Plot mask over orthos
 
 ```{r}
 create_plot <- function(raster, title, mask = NULL, color_scale = viridis::viridis) {
-  plot(raster, main = title, col = color_scale(100))
+  rast <- raster
+  plot(rast, main = title, col = color_scale(100))
   
   if (!is.null(mask)) {
     lines(mask, col = "red", lwd = 2)
@@ -60,46 +74,40 @@ create_plot(slope, "Slope with Mask", mask = mask, color_scale = terrain.colors)
 
 ```{r}
 coverage[coverage == 4] <- NA 
-coverage <- terra::project(coverage, crs(slope))
 
 coverage_resampled <- terra::resample(coverage, slope, method="bilinear")
 
 sand_df <- coverage_resampled |>
-  terra::mask(mask, inverse=TRUE) |>
   terra::as.data.frame(xy=TRUE) |>
   as_tibble() |>
-  rename(sand = 3) |>  
-  filter(!is.na(sand))  
+  rename(sand = 3)
 
 slope_df <- slope |>
-  terra::mask(mask, inverse=TRUE) |>
   terra::as.data.frame(xy=TRUE) |>
   as_tibble() |>
-  rename(slope = 3) |>  
-  filter(!is.na(slope))  
+  rename(slope = 3)
 
 data <- sand_df |> 
   inner_join(slope_df, by = c("x", "y"))
 data
 ```
+
 # Visual check
 
 ```{r}
-sand_raster <- data |>
+sand_raster <-  data |>
   select(-slope) |>
-  terra::rast(
-    crs = crs(coverage_resampled),  
-    extent = ext(coverage_resampled),  
-  )
+  terra::rast(crs = CRS)  |>
+  terra::mask(mask, inverse=TRUE)
 
 slope_raster <- data |>
   select(-sand) |>
-  terra::rast(
-    crs = crs(slope),  
-    extent = ext(slope),  
-  )
+  terra::rast(crs = CRS)  |>
+  terra::mask(mask, inverse=TRUE)
 
 create_plot(sand_raster, "Sand")
 create_plot(slope_raster, "Slope")
 ```
+
+
 
