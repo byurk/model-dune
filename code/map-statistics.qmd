@@ -91,7 +91,7 @@ data
 
 # Visual check
 
-Some strange behavior here. The first time this code is run the mask does not work. On subsequent runs it seems to work, albeit somewhat sporatically. Need to find the root cause. 
+Some strange behavior here. The first time this code is run the mask does not work. On subsequent runs it seems to work albeit somewhat sporadically. Need to find the root cause. 
 
 ```{r}
 sand_rast <-  data |>
