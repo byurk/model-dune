@@ -95,18 +95,18 @@ data
 # Visual check
 
 ```{r}
-sand_raster <-  data |>
+sand_rast <-  data |>
   select(-slope) |>
   terra::rast(crs = CRS)  |>
   terra::mask(mask, inverse=TRUE)
 
-slope_raster <- data |>
+slope_rast <- data |>
   select(-sand) |>
   terra::rast(crs = CRS)  |>
   terra::mask(mask, inverse=TRUE)
 
-create_plot(sand_raster, "Sand")
-create_plot(slope_raster, "Slope")
+create_plot(sand_rast, "Sand", mask=mask)
+create_plot(slope_rast, "Slope", mask=mask)
 ```
 
 
