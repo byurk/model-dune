@@ -1,0 +1,113 @@
+---
+title: "map-statistics"
+format: html
+---
+
+# Remove environment
+
+```{r}
+rm(list = ls())
+gc()  
+```
+
+
+# Read in libraries
+
+```{r}
+library(conflicted)
+library(terra)
+library(tidyverse)
+library(ggplot2)
+library(viridis)
+
+conflict_prefer("extract", "terra")
+conflict_prefer("filter", "dplyr")
+conflict_prefer("lag", "dplyr")
+```
+
+
+# Read in coverage map, slope, mask, and digital elevation model
+
+```{r}
+dem <- terra::rast("clean_data/drone_sitched/dem.tif")
+
+CRS <- crs(dem)
+
+coverage <- terra::rast('clean_data/drone_sitched/pred_map.tif') |>
+  terra::project(CRS)
+
+
+if(!file.exists('outputs/slope.tif')){
+  slope <- terra::terrain(dem, v="slope", unit="degrees") |>
+    terra::project(CRS)
+  
+  terra::writeRaster(slope, 'outputs/slope.tif')
+} else {
+  slope <- terra::rast('outputs/slope.tif') |>
+    terra::project(CRS)
+}
+
+
+mask <- terra::vect('clean_data/drone_sitched/Mask_Grass_Paper.shp') |>
+  terra::project(CRS)
+
+```
+
+# Plot mask over orthos
+
+```{r}
+create_plot <- function(raster, title, mask = NULL, color_scale = viridis::viridis) {
+  rast <- raster
+  plot(rast, main = title, col = color_scale(100))
+  
+  if (!is.null(mask)) {
+    lines(mask, col = "red", lwd = 2)
+  }
+}
+
+create_plot(dem, "Digital Elevation Model with Mask", mask = mask)
+create_plot(coverage, "Vegetation Coverage with Mask", mask = mask)
+create_plot(slope, "Slope with Mask", mask = mask, color_scale = terrain.colors)
+```
+
+## Create data
+
+```{r}
+coverage[coverage == 4] <- NA 
+
+coverage_resampled <- terra::resample(coverage, slope, method="bilinear")
+
+sand_df <- coverage_resampled |>
+  terra::as.data.frame(xy=TRUE) |>
+  as_tibble() |>
+  rename(sand = 3)
+
+slope_df <- slope |>
+  terra::as.data.frame(xy=TRUE) |>
+  as_tibble() |>
+  rename(slope = 3)
+
+data <- sand_df |> 
+  inner_join(slope_df, by = c("x", "y"))
+data
+```
+
+# Visual check
+
+```{r}
+sand_rast <-  data |>
+  select(-slope) |>
+  terra::rast(crs = CRS)  |>
+  terra::mask(mask, inverse=TRUE)
+
+slope_rast <- data |>
+  select(-sand) |>
+  terra::rast(crs = CRS)  |>
+  terra::mask(mask, inverse=TRUE)
+
+create_plot(sand_rast, "Sand", mask=mask)
+create_plot(slope_rast, "Slope", mask=mask)
+```
+
+
+
