@@ -22,33 +22,34 @@ library(viridis)
 conflict_prefer("extract", "terra")
 conflict_prefer("filter", "dplyr")
 conflict_prefer("lag", "dplyr")
+conflicts_prefer(dplyr::select)
 ```
 
 # Read in coverage map, slope, mask, and digital elevation model
 
 ```{r}
-dem <- terra::rast("clean_data/ortho/dem.tif")
+dem <- terra::rast("raw_data/ortho/dem.tif")
 
 CRS <- crs(dem)
 
-coverage <- terra::rast('clean_data/drone_sitched/pred_map.tif') |>
+coverage <- terra::rast('clean_data/ortho/orthomosaic_composition.tif') |>
+  subset("sand") |>
   terra::project(CRS)
 
 
-if(!file.exists('outputs/slope.tif')){
+if(!file.exists('outputs/ortho/slope.tif')){
   slope <- terra::terrain(dem, v="slope", unit="degrees") |>
     terra::project(CRS)
   
-  terra::writeRaster(slope, 'outputs/slope.tif')
+  terra::writeRaster(slope, 'outputs/ortho/slope.tif')
 } else {
-  slope <- terra::rast('outputs/slope.tif') |>
+  slope <- terra::rast('outputs/ortho/slope.tif') |>
     terra::project(CRS)
 }
 
 
-mask <- terra::vect('clean_data/drone_sitched/Mask_Grass_Paper.shp') |>
+mask <- terra::vect('clean_data/ortho/grass-mask/mask_grass_paper.shp') |>
   terra::project(CRS)
-
 ```
 
 # Plot mask over orthos
@@ -71,8 +72,6 @@ create_plot(slope, "Slope with Mask", mask = mask, color_scale = terrain.colors)
 ## Create data
 
 ```{r}
-coverage[coverage == 4] <- NA 
-
 coverage_resampled <- terra::resample(coverage, slope, method="bilinear")
 
 sand_df <- coverage_resampled |>
@@ -92,6 +91,8 @@ data
 
 # Visual check
 
+Some strange behavior here. The first time this code is run the mask does not work. On subsequent runs it seems to work, albeit somewhat sporatically. Need to find the root cause. 
+
 ```{r}
 sand_rast <-  data |>
   select(-slope) |>
@@ -106,3 +107,18 @@ slope_rast <- data |>
 create_plot(sand_rast, "Sand", mask=mask)
 create_plot(slope_rast, "Slope", mask=mask)
 ```
+
+
+## Spearmans Rank Correlation 
+
+```{r}
+df <- c(sand_rast, slope_rast) |>
+  terra::as.data.frame(xy=TRUE) |>
+  as_tibble()
+
+spearman_cor <- df |>
+  select(-c(x,y)) |> 
+  cor( method = "spearman")
+```
+
+

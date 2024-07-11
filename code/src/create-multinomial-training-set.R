@@ -155,10 +155,10 @@ ground_data <- bind_rows(ground_data_nested$aggregates) |>
 names(ground_data) <- c('quadrant_key', 'dead', 'grass', 'sand')
 
 
-training <- ground_data |>
+training_multinomial <- ground_data |>
   left_join(ortho_data, by ='quadrant_key') |>
   mutate(across(everything(), \(x)(replace_na(x, 0))))
 
 # Save the data
-saveRDS(training, 'clean_data/training-multinomial.rds')
+saveRDS(training_multinomial, 'clean_data/training-multinomial.rds')
 

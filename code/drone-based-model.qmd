@@ -195,17 +195,14 @@ error <- bind_cols(prediction, test_y) |>
   mutate(squard_error = (pred -obs)^2) |>
   ungroup()
 
-rmse <- sqrt(sum(error$squard_error)/n)
-
-print('RMSE Multinomial')
-print(rmse)
+#rmse <- sqrt(sum(error$squard_error)/n)
 ```
 
 ## Save fit
 
 ```{r}
-# multinomial_fit <- fit
-# saveRDS(multinomial_fit, 'clean_data/mutlinomial_fit.rds')
+multinomial_fit <- fit
+saveRDS(multinomial_fit, 'clean_data/mutlinomial_fit.rds')
 ```
 
 ## Plot the object fit
