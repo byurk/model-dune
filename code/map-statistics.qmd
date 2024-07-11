@@ -10,7 +10,6 @@ rm(list = ls())
 gc()  
 ```
 
-
 # Read in libraries
 
 ```{r}
@@ -25,11 +24,10 @@ conflict_prefer("filter", "dplyr")
 conflict_prefer("lag", "dplyr")
 ```
 
-
 # Read in coverage map, slope, mask, and digital elevation model
 
 ```{r}
-dem <- terra::rast("clean_data/drone_sitched/dem.tif")
+dem <- terra::rast("clean_data/ortho/dem.tif")
 
 CRS <- crs(dem)
 
@@ -108,6 +106,3 @@ slope_rast <- data |>
 create_plot(sand_rast, "Sand", mask=mask)
 create_plot(slope_rast, "Slope", mask=mask)
 ```
-
-
-

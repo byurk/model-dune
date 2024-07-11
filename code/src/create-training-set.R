@@ -1,12 +1,12 @@
-source('src/spatial-utils.R')
+source('code/src/spatial-utils.R')
 library(terra)
 library(sf)
 # Extract 200 quarters from 50 quadrants in both the classified images and the drone orthomasic
 # The classified images serve as training data for the multinomial logistic regression model
 
-processed_ortho_path <- 'clean_data/processed_ortho.tif'
+processed_ortho_path <- 'clean_data/ortho/processed_ortho.tif'
 processed_ortho <- terra::rast(processed_ortho_path)
-ortho <- terra::rast('raw_data/ortho.tif')
+ortho <- terra::rast('raw_data/ortho/ortho.tif')
 ortho_crs <- crs(ortho)
 
 add_contrast <- function(ortho){
@@ -15,7 +15,7 @@ add_contrast <- function(ortho){
 }
 
 # Extract drone data
-corner_points_ortho <- st_read("~/projects/archive/quadClassify/raw_data/drone_sitched/coord_layer.shp") |>
+corner_points_ortho <- st_read("raw_data/ortho/coord_layer.shp") |>
   rename(quadrat = id) |>
   mutate(quadrat = as.character(quadrat)) |>
   as_tibble()
@@ -91,7 +91,7 @@ ortho_data <- quad |>
 # Extract quadrats orthomosaic data
 corner_points <- tibble(json_path = sprintf("raw_data/quadrats/quadrat%02d/points.json", seq(34, 83, 1)))
 
-model_name <- 'xgb_fit'
+model_name <- 'xgb_fit_model_final'
 image_files <- tibble(classified = list.files(glue("clean_data/classified/{model_name}"), pattern = ".tif", full.names = TRUE))
 num_image_files <-length(image_files$classified)
 
@@ -160,5 +160,5 @@ training <- ground_data |>
   mutate(across(everything(), \(x)(replace_na(x, 0))))
 
 # Save the data
-saveRDS(training, 'clean_data/training.rds')
+saveRDS(training, 'clean_data/training-multinomial.rds')
 
