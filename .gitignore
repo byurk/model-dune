@@ -4,6 +4,7 @@
 .Rproj.user
 .Rhistory
 .DS_Store
+**/*.DS_Store
 Instructions.html
 code/.Rhistory
 code/.DS_Store
