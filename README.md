@@ -10,13 +10,7 @@ git clone git@github.com:byurk/model-dune.git
 
 2. Open up the project by navigating inside the directory and click ```model-dune.Rproj```.
 
-3. Install the ```renv``` package to manage the project dependencies.
-
-```R
-install.packages("renv")
-library(renv)
-```
-4. Run the command ```renv::restore()``` to install the project dependencies.
+3. Check for any warnings for missing dependencies that you might have to install.
 
 Done! Now you should be able to run the code in the project.
 
