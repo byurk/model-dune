@@ -91,7 +91,7 @@ ortho_data <- quad |>
 # Extract quadrats orthomosaic data
 corner_points <- tibble(json_path = sprintf("raw_data/quadrats/quadrat%02d/points.json", seq(34, 83, 1)))
 
-model_name <- 'xgb_fit_model_final'
+model_name <- 'xgb_model_final'
 image_files <- tibble(classified = list.files(glue("clean_data/classified/{model_name}"), pattern = ".tif", full.names = TRUE))
 num_image_files <-length(image_files$classified)
 
@@ -160,5 +160,5 @@ training_multinomial <- ground_data |>
   mutate(across(everything(), \(x)(replace_na(x, 0))))
 
 # Save the data
-saveRDS(training_multinomial, 'clean_data/training-multinomial.rds')
+saveRDS(training_multinomial, glue('clean_data/training-multinomial-{model_name}.rds'))
 

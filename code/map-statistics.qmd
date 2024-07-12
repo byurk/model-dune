@@ -22,7 +22,7 @@ library(viridis)
 conflict_prefer("extract", "terra")
 conflict_prefer("filter", "dplyr")
 conflict_prefer("lag", "dplyr")
-conflicts_prefer(dplyr::select)
+conflict_prefer("select", "dplyr")
 ```
 
 # Read in coverage map, slope, mask, and digital elevation model
