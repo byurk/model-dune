@@ -1,7 +1,7 @@
 library(tictoc)
 source('code/src/spatial-utils.R')
 
-directories <- sprintf("raw_data/quadrats/quadrat%02d", seq(63, 83, 1)) 
+directories <- sprintf("raw_data/quadrats/quadrat%02d", seq(35, 62, 1)) 
 
 model_name <- 'xgb_model_final'
 model_path <- glue('outputs/{model_name}.rds')
