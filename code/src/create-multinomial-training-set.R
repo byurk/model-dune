@@ -40,14 +40,41 @@ quadrants <- corner_points_ortho |>
     three = list(sanitize_polygon(three))
          ) |>
   ungroup() |>
-  mutate(quad_crop = map(total,\(x)(terra::crop(ortho, x)))) |>
+  mutate(quad_crop = map(total,.f = \(x){
+    terra::crop(ortho, vect(x), mask = TRUE) # mask to make sure we don't pixels outside of quadrat
+  })) |>
+  #mutate(quad_crop = map(total,\(x)(terra::mask(quad_crop, x)))) |>
+  mutate(quad_crop = map(quad_crop, add_hsv)) |>
   mutate(quad_crop = map(quad_crop, add_ndvi)) |>
-  mutate(quad_crop = map(quad_crop, .f=add_contrast)) |>
+  #mutate(quad_crop = map(quad_crop, .f=add_contrast)) |> # does not work well with quadrats that are not aligned with cardinal directions
   mutate(quad_crop = map(quad_crop, .f = \(x){  
     crs(x) <- ortho_crs
     return(x)
   }))
 
+
+# all_pix <- quadrants |>
+#   select(-c(zero, one, two, three, total)) %>%
+#   mutate(pix_vals = map(quad_crop, \(x)(values(x, dataframe=TRUE)))) %>%
+#   unnest(pix_vals) %>%
+#   select(-quad_crop)
+# 
+# all_pix %>%
+#   mutate(ndvi_sqrt = sqrt(if_else(ndvi>0,ndvi,0))) %>%
+#   mutate(hue_sqrt = sqrt(hue)) %>%
+#   mutate(hue_log = log(hue+0.05)) %>%
+#   ggplot(aes(ndvi)) +
+#   geom_histogram() +
+#   theme_minimal()
+# 
+# all_pix %>%
+#   mutate(ndvi_sqrt = sqrt(if_else(ndvi>0,ndvi,0))) %>%
+#   mutate(hue_sqrt = sqrt(hue)) %>%
+#   mutate(hue_log = log(hue+0.05)) %>%
+#   ggplot(aes(hue_log, ndvi)) +
+#   geom_hex(bins = 75) +
+#   scale_fill_continuous(type = "viridis") +
+#   theme_minimal()
 
 quad <- quadrants |>
   dplyr::select(c(quadrat, zero, one, two, three, quad_crop)) |>
@@ -66,37 +93,129 @@ quad <- quadrants |>
   mutate(quadrat = str_extract(quadrant_key, "\\d+")) |>
   left_join(quadrants, by ='quadrat') |>
   dplyr::select(-c(zero, one, two, three, total,))|>
-  mutate(aggregates = map2(quad_crop, polys, \(x,y){
-    aggregate_functions <- list(
-      "sd" = "sd",
-      "mean" = "mean",
-      "max" = "max",
-      "min" = "min"
-    )
-    results <- list()
-    for (statistic_name in names(aggregate_functions)) {
-      func <- aggregate_functions[[statistic_name]]
-      result <- terra::extract(x, y, fun=func, na.rm=TRUE)
-      names(result) <- paste0(names(result), "_", statistic_name)
-      results[[statistic_name]] <- result[,-1]
-    }
-    
-    return(bind_cols(unname(results)))
-  }))
+  mutate(vals = map2(quad_crop, polys, .f = \(x,y){
+    terra::crop(x, vect(y), mask = TRUE, touches = FALSE, snap = "in") %>% # with near will get some cells that show up in multiple quandrants, in will avoid this but some cells may be missed entirely, out will have a lot of overlap
+      terra::values(dataframe=TRUE, na.rm=TRUE)
+  })) #|>
+  # mutate(aggregates = map2(quad_crop, polys, \(x,y){
+  #   aggregate_functions <- list(
+  #     "sd" = "sd",
+  #     "mean" = "mean",
+  #     "max" = "max",
+  #     "min" = "min"
+  #   )
+  #   results <- list()
+  #   for (statistic_name in names(aggregate_functions)) {
+  #     func <- aggregate_functions[[statistic_name]]
+  #     result <- terra::extract(x, y, fun=func, na.rm=TRUE)
+  #     names(result) <- paste0(names(result), "_", statistic_name)
+  #     results[[statistic_name]] <- result[,-1]
+  #   }
+  #   
+  #   return(bind_cols(unname(results)))
+  # }))
 
-ortho_data <- quad |>
-  select(c(quadrant_key,aggregates)) |>
-  unnest(cols = aggregates)
+quad %>%
+  select(quadrat, quadrant, quadrant_key, vals) %>%
+  unnest(vals) %>%
+  filter(quadrat == "83") %>%
+  ggplot(aes(x = saturation, color = quadrant)) +
+  geom_freqpoly(bins=10) +
+  theme_minimal()
+
+# should us training set only here
+qs <- quad %>%
+  select(vals) %>%
+  unnest(vals) %>%
+  pivot_longer(everything(), names_to = "band", values_to = "val") %>%
+  group_by(band) %>%
+  summarize(
+    mean = mean(val, na.rm = TRUE),
+    sd = sd(val, na.rm = TRUE),
+    min = min(val, na.rm = TRUE),
+    max = max(val, na.rm = TRUE),
+    n = sum(!is.na(val)),
+    median = median(val, na.rm = TRUE),
+    q1 = quantile(val, 0.25, na.rm = TRUE),
+    q3 = quantile(val, 0.75, na.rm = TRUE)
+  )
+
+quad_stats <- quad %>%
+  select(quadrat, quadrant, quadrant_key, vals) %>%
+  unnest(vals) %>%
+  group_by(quadrant_key) %>%
+  summarize(
+    across(!c(quadrat, quadrant), list(
+      mean = ~ mean(.x, na.rm = TRUE),
+      sd = ~ sd(.x, na.rm = TRUE),
+      min = ~ min(.x, na.rm = TRUE),
+      max = ~ max(.x, na.rm = TRUE),
+      n = ~ sum(!is.na(.x)),
+      median = ~ median(.x, na.rm = TRUE),
+      q1 = ~ quantile(.x, 0.25, na.rm = TRUE),
+      q3 = ~ quantile(.x, 0.75, na.rm = TRUE),
+      p1 = ~ {
+        q1 <- filter(qs, band == cur_column()) %>% pull(q1)
+        q2 <- filter(qs, band == cur_column()) %>% pull(median)
+        q3 <- filter(qs, band == cur_column()) %>% pull(q3)
+        nn <- sum(!is.na(.x))
+        p <- sum(.x < q1, na.rm = TRUE) / nn
+        return(p)
+      },
+      p2 = ~ {
+        q1 <- filter(qs, band == cur_column()) %>% pull(q1)
+        q2 <- filter(qs, band == cur_column()) %>% pull(median)
+        q3 <- filter(qs, band == cur_column()) %>% pull(q3)
+        nn <- sum(!is.na(.x))
+        p <- sum(.x >= q1 & .x < q2, na.rm = TRUE) / nn
+        return(p)
+      },
+      p3 = ~ {
+        q1 <- filter(qs, band == cur_column()) %>% pull(q1)
+        q2 <- filter(qs, band == cur_column()) %>% pull(median)
+        q3 <- filter(qs, band == cur_column()) %>% pull(q3)
+        nn <- sum(!is.na(.x))
+        p <- sum(.x >= q2 & .x < q3, na.rm = TRUE) / nn
+        return(p)
+      },
+      p4 = ~ {
+        q1 <- filter(qs, band == cur_column()) %>% pull(q1)
+        q2 <- filter(qs, band == cur_column()) %>% pull(median)
+        q3 <- filter(qs, band == cur_column()) %>% pull(q3)
+        nn <- sum(!is.na(.x))
+        p <- sum(.x >= q3, na.rm = TRUE) / nn
+        return(p)
+      }
+    ))
+  )
+  
+
+#ortho_data <- quad |>
+#  select(c(quadrant_key,aggregates)) |>
+#  unnest(cols = aggregates)
+
+ortho_data <- quad_stats
   
 # Extract quadrats orthomosaic data
-corner_points <- tibble(json_path = sprintf("raw_data/quadrats/quadrat%02d/points.json", seq(34, 83, 1)))
+corner_points <- tibble(
+  quadrat = seq(34,83,1) %>% as.character(), 
+  json_path = sprintf("raw_data/quadrats/quadrat%02d/points.json", seq(34, 83, 1))
+  )
 
 model_name <- 'xgb_model_final'
-image_files <- tibble(classified = list.files(glue("clean_data/classified/{model_name}"), pattern = ".tif", full.names = TRUE))
-num_image_files <-length(image_files$classified)
 
-data <- bind_cols(corner_points[1:num_image_files,], image_files) |>
-  mutate(quadrat = gsub("\\D", "", classified)) |>
+image_files <- tibble(
+  quadrat = list.files(glue("clean_data/classified/{model_name}"), pattern = ".tif", full.names = FALSE) %>%
+    str_remove(".tif"),
+  classified = list.files(glue("clean_data/classified/{model_name}"), pattern = ".tif", full.names = TRUE)
+  )
+
+#num_image_files <-length(image_files$classified)
+
+#data <- bind_cols(corner_points[1:num_image_files,], image_files) |>
+data <- corner_points %>%
+  right_join(image_files, by = "quadrat") |>
+  #mutate(quadrat = gsub("\\D", "", classified)) |>
   rowwise() |>
   mutate(polygon = list(label_me_points_json_to_sf(json_path))) |>
   ungroup() |>
@@ -134,31 +253,48 @@ ground_quadrants <- geometry |>
   ungroup()
 
 
-ground_data_nested <- ground_quadrants |>
-  rowwise() |>
-  mutate(aggregates = list(extract_polygon_pixels(classified, polygon = polys, extent = c(0,1,0,1), include_polygon_info = TRUE))) |>
-  ungroup()
 
 
-ground_data <- bind_rows(ground_data_nested$aggregates) |>
-  rename(class = lyr1) |>
-  dplyr::select(c(class, quadrant_key)) |>
-  group_by(quadrant_key, class) |>
-  summarise(n = n()) |>
-  pivot_wider(
-    names_from = class,
-    values_from = n,
-    names_prefix = "class_"
-    ) |>
-  ungroup()
-
-names(ground_data) <- c('quadrant_key', 'dead', 'grass', 'sand')
+ground_data <- ground_quadrants %>%
+  mutate(tables = map2(classified, polys, .f = \(x,y){
+    terra::extract(terra::rast(x), vect(y), fun = table)
+  })) %>%
+  mutate(tables = map2(polys, tables, .f=\(x,y){
+    bind_cols(x %>% select(quadrant_key) %>% st_drop_geometry(), as_tibble(y) %>% select(-ID))
+  })) %>%
+  unnest(tables) %>%
+  rename(dead = `1`, grass = `2`, sand = `3`) %>%
+  dplyr::select(c(quadrant_key, dead, grass, sand))
 
 
-training_multinomial <- ground_data |>
-  left_join(ortho_data, by ='quadrant_key') |>
-  mutate(across(everything(), \(x)(replace_na(x, 0))))
+# ground_data_nested <- ground_quadrants |>
+#   rowwise() |>
+#   mutate(aggregates = list(extract_polygon_pixels(classified, polygon = polys, extent = c(0,1,0,1), include_polygon_info = TRUE))) |>
+#   ungroup()
+# 
+# 
+# ground_data <- bind_rows(ground_data_nested$aggregates) |>
+#   rename(class = lyr1) |>
+#   dplyr::select(c(class, quadrant_key)) |>
+#   group_by(quadrant_key, class) |>
+#   summarise(n = n()) |>
+#   pivot_wider(
+#     names_from = class,
+#     values_from = n,
+#     names_prefix = "class_"
+#     ) |>
+#   ungroup()
+
+#names(ground_data) <- c('quadrant_key', 'dead', 'grass', 'sand')
+
+all_data <- ground_data |>
+  left_join(ortho_data, by = 'quadrant_key')
+
+
+#training_multinomial <- ground_data |>
+#  left_join(ortho_data, by ='quadrant_key') |>
+#  mutate(across(everything(), \(x)(replace_na(x, 0))))
 
 # Save the data
-saveRDS(training_multinomial, glue('clean_data/training-multinomial-{model_name}.rds'))
+saveRDS(all_data, glue('clean_data/quad-data-{model_name}.rds'))
 

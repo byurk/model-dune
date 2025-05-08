@@ -35,6 +35,13 @@ add_ndvi <- function(ortho, red_band = 3L, nir_band = 5L){
   c(ortho, ndvi)
 }
 
+add_hsv <- function(ortho, red_band = 3L, green_band = 2L, blue_band = 1L){
+  rgb <- ortho[[c(red_band, green_band, blue_band)]] * (2^8-1)/(2^14-1)
+  RGB(rgb) <- c(1,2,3)
+  hsv <- terra::colorize(rgb, to="hsv")
+  c(ortho, hsv)
+}
+
 get_contrast <- function(ortho, layer = 7L, statistic = 'contrast', window = 5L){
   raster<- ortho[[layer]]
   layer_name <- names(ortho)[layer]
