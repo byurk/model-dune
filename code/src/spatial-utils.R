@@ -77,6 +77,17 @@ create_quadrant_polygon <- function(quadrant, c_coords, i_coords, ii_coords) {
   #   ii_coords <- temp
   # }
   
+  # check corner labeling
+  ci <- i_coords - c_coords 
+  cii <- ii_coords - c_coords
+  z = rbind(unlist(cii), unlist(ci)) %>% det() #cross-product
+  if(z < 0){ # corners in wrong order
+    i_old <- i_coords
+    i_coords <- ii_coords
+    ii_coords <- i_old
+  }
+  
+  
   # Computing all coordinates needed for the four quadrants
   iii_coords <- i_coords + (ii_coords - c_coords)
   s1 <- (c_coords + i_coords) / 2
