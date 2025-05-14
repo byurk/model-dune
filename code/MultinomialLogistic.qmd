@@ -1,0 +1,356 @@
+---
+title: "Multinomial Logistic Regression with Regularization"
+format: html
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir=normalizePath(".."))
+```
+
+```{r}
+rm(list = ls())
+gc()
+```
+
+```{r}
+library(tidyverse)
+library(tidymodels)
+library(glmnet)
+```
+
+Import data and remove thermal information and pixel counts.
+
+```{r}
+quad <- readRDS("clean_data/quad-data-xgb_model_final.rds") %>%
+  select(-starts_with("ortho_6")) %>%
+  select(-ends_with("_n")) %>%
+  select(-matches("_p\\d$")) %>%
+  select(-starts_with("ortho")) %>%
+  select(-ends_with("_min")) %>%
+  select(-ends_with("_max")) #%>%
+  #select(-ends_with("_mean")) %>%
+  #select(-ends_with("_sd"))
+```
+
+Split data into training and testing sets.
+
+```{r}
+set.seed(8675309)
+quad_split <- quad %>% initial_split(strata = grass)
+quad_train <- quad_split %>% training()
+quad_test <- quad_split %>% testing()
+```
+
+Create some bootstraps of the training set for tuning.
+
+```{r}
+quad_boot <- quad_train %>%
+  bootstraps(times = 30, strata = grass)
+```
+
+Multinomial regression model with lasso regularization.
+
+```{r}
+multi_rec <- recipe(dead + grass + sand ~ . , data = quad_train) %>%
+  step_rm(quadrant_key) %>%
+  step_normalize(all_predictors())
+```
+
+## Looking at a single bootstrap
+
+
+```{r}
+lambda_grid <- 10 ^ (seq(0, -20, by = -20/100))
+
+split_an <- quad_boot$splits[[1]] %>% analysis()
+split_as <- quad_boot$splits[[1]] %>% assessment()
+
+# standardization parameters estimated using just analysis set from split
+split_prep_an <- multi_rec %>% prep(training = split_an) %>% bake(new_data = NULL)
+split_prep_as <- multi_rec %>% prep(training = split_an) %>% bake(new_data = split_as)
+  
+y <- split_prep_an %>%
+  select(dead, grass, sand) %>%
+  as.matrix()
+
+x <- split_prep_an %>%
+  select(-c(dead, grass, sand)) %>%
+  as.matrix()
+
+# alpha = 1: lasso, alpha = 0: ridge
+glm1 <- glmnet(x, y, family = "multinomial", alpha = 1, lambda = lambda_grid)
+# grouped means that all K coefficients (K = number of classes) for a particular variable go to 0 at the same time
+# may work better because this should be less flexible in one sense?
+#glm1 <- glmnet(x, y, family = "multinomial", alpha = 1, lambda = lambda_grid, type.multinomial = "grouped")
+
+plot(glm1, xvar = "lambda", label = TRUE)
+```
+
+
+
+```{r}
+# from the assessment set
+x <- split_prep_as %>%
+  select(-c(dead, grass, sand)) %>%
+  as.matrix()
+
+# return predictions at all values of lambda
+glm1_pred <- predict(glm1, newx = x, type = "response") %>%
+  as_tibble()
+
+# number of observations in assessment set
+nob <- dim(x)[1]
+
+glm1_pred <- glm1_pred %>% 
+  bind_cols(split_prep_as %>% select(dead, grass, sand)) %>%
+  mutate(total = dead + grass + sand) %>%
+  mutate(dead = dead/total,
+         grass = grass/total,
+         sand = sand/total) %>%
+  select(-total) %>%
+  rename(dead.obs = dead, grass.obs = grass, sand.obs = sand)
+
+rmse_res <- glm1_pred %>% 
+  pivot_longer(everything(), names_to = c("type", ".value"), names_sep = "\\.") %>%
+  transmute(across(starts_with("s"), ~ (obs - .x)^2)) %>%
+  summarize(across(everything(), ~ sqrt( sum(.x) / nob ))) %>%
+  pivot_longer(everything(), names_to = "grid_ind", values_to = "value") %>%
+  mutate(grid_ind = grid_ind %>% str_remove("s") %>% as.numeric())
+
+rmse_res %>% 
+  ggplot(aes(grid_ind, value)) + 
+  geom_point() +
+  theme_minimal()
+```
+
+
+## Tuning with bootstraps
+
+
+```{r}
+tune_split <- function(split, rec, grid){
+  
+  split_an <- split %>% analysis()
+  split_as <- split %>% assessment()
+  
+  # standardization parameters estimated using just analysis set from split
+  split_prep_an <- rec %>% prep(training = split_an) %>% bake(new_data = NULL)
+  split_prep_as <- rec %>% prep(training = split_an) %>% bake(new_data = split_as)
+  
+  y <- split_prep_an %>%
+    select(dead, grass, sand) %>%
+    as.matrix()
+  
+  x <- split_prep_an %>%
+    select(-c(dead, grass, sand)) %>%
+    as.matrix()
+  
+  # alpha = 1: lasso, alpha = 0: ridge
+  glm1 <- glmnet(x, y, family = "multinomial", alpha = 1, lambda = grid)
+  # grouped means that all K coefficients (K = number of classes) for a particular variable go to 0 at the same time
+  # may work better because this should be less flexible in one sense?
+  #glm1 <- glmnet(x, y, family = "multinomial", alpha = 1, lambda = grid, type.multinomial = "grouped")
+  
+  
+  # from the assessment set
+  x <- split_prep_as %>%
+    select(-c(dead, grass, sand)) %>%
+    as.matrix()
+  
+  # return predictions at all values of lambda
+  glm1_pred <- predict(glm1, newx = x, type = "response") %>%
+    as_tibble()
+  
+  
+  # number of observations in assessment set
+  nob <- dim(x)[1]
+  
+  glm1_pred <- glm1_pred %>% 
+    bind_cols(split_prep_as %>% select(dead, grass, sand)) %>%
+    mutate(total = dead + grass + sand) %>%
+    mutate(dead = dead/total,
+           grass = grass/total,
+           sand = sand/total) %>%
+    select(-total) %>%
+    rename(dead.obs = dead, grass.obs = grass, sand.obs = sand)
+  
+  rmse_res <- glm1_pred %>% 
+    pivot_longer(everything(), names_to = c("type", ".value"), names_sep = "\\.") %>%
+    transmute(across(starts_with("s"), ~ (obs - .x)^2)) %>%
+    summarize(across(everything(), ~ sqrt( sum(.x) / nob ))) %>%
+    pivot_longer(everything(), names_to = "grid_ind", values_to = "value") %>%
+    mutate(grid_ind = grid_ind %>% str_remove("s") %>% as.numeric())
+  
+  return(rmse_res)
+}
+```
+
+```{r}
+#grid should be descending
+lambda_grid <- 10 ^ (seq(0, -20, by = -20/100))
+
+tune_res <- quad_boot %>%
+  mutate(split_res = map(splits, tune_split, rec = multi_rec, grid = lambda_grid))
+
+tune_res <- tune_res %>%
+  select(id, split_res) %>%
+  unnest(split_res)
+```
+
+```{r}
+tune_res_summary <- tune_res %>%
+  group_by(grid_ind) %>% 
+  summarize(mean = mean(value), sd = sd(value)) %>%
+  mutate(lambda = lambda_grid[grid_ind + 1]) %>%
+  ungroup()
+```
+
+```{r}
+nboot <- quad_boot %>% dim %>% .[1]
+
+tune_res_summary %>%
+  ggplot(aes(log10(lambda), mean)) +
+  geom_point() +
+  geom_line() +
+  geom_errorbar(aes(ymin = mean - sd/sqrt(nboot), ymax = mean + sd/sqrt(nboot))) +
+  theme_minimal()
+```
+
+```{r}
+thresh <- tune_res_summary %>%
+  slice(which.min(mean)) %>%
+  mutate(thresh = mean + sd/nboot) %>%
+  pull(thresh)
+
+best <- tune_res_summary %>%
+  filter(mean < thresh) %>%
+  arrange(lambda) %>%
+  tail(1)
+
+best
+```
+
+Train a model using the full training set.
+
+```{r}
+train_full <- function(train, rec, grid){
+  
+  # standardization parameters estimated using just analysis set from split
+  train_prep <- rec %>% prep(training = train) %>% bake(new_data = NULL)
+  
+  y <- train_prep %>%
+    select(dead, grass, sand) %>%
+    as.matrix()
+  
+  x <- train_prep %>%
+    select(-c(dead, grass, sand)) %>%
+    as.matrix()
+  
+  # alpha = 1: lasso, alpha = 0: ridge
+  glm1 <- glmnet(x, y, family = "multinomial", alpha = 1, lambda = grid)
+  # grouped means that all K coefficients (K = number of classes) for a particular variable go to 0 at the same time
+  # may work better because this should be less flexible in one sense?
+  #glm1 <- glmnet(x, y, family = "multinomial", alpha = 1, lambda = grid, type.multinomial = "grouped")
+  
+  return(glm1)
+}
+```
+
+```{r}
+glm_trained <- quad_train %>% 
+  train_full(multi_rec, lambda_grid)
+
+# trained recipe to be used for preprocessing
+multi_rec_trained <- multi_rec %>% 
+  prep(training = quad_train)
+```
+
+Evaluate performance on test set.
+
+```{r}
+test_prep <- multi_rec_trained %>%
+  bake(new_data = quad_test)
+
+# from the assessment set
+x <- test_prep %>%
+  select(-c(dead, grass, sand)) %>%
+  as.matrix()
+
+nob <- dim(x)[1]
+
+# return predictions best value of lambda
+glm_pred_test <- predict(glm_trained, newx = x, type = "response", s = best %>% pull(lambda)) %>%
+  as_tibble() %>%
+  rename(dead.pred = dead.1, grass.pred = grass.1, sand.pred = sand.1)
+
+results_test <- test_prep %>% bind_cols(glm_pred_test) %>%
+  mutate(total = dead + grass + sand) %>%
+  mutate(dead.obs = dead/total,
+         grass.obs = grass/total,
+         sand.obs = sand/total)
+
+results_test_summary <- results_test %>%
+  select(dead.obs, grass.obs, sand.obs, dead.pred, grass.pred, sand.pred) %>%
+  pivot_longer(everything(), names_to = c("type", ".value"), names_sep = "\\.") %>%
+  mutate(dif2 = (obs - pred)^2) %>%
+  summarise(rmse = sqrt( sum(dif2) / nob) )
+
+results_test_summary
+```
+
+Also add ternary diagram with pred and obs for test set connected by lines.
+
+```{r}
+results_test %>%
+  select(dead.obs, grass.obs, sand.obs, dead.pred, grass.pred, sand.pred) %>%
+  pivot_longer(everything(), names_to = c("type", ".value"), names_sep = "\\.") %>%
+  ggplot(aes(obs, pred, color = type)) +
+  geom_point() +
+  geom_abline() +
+  theme_minimal()
+```
+
+```{r}
+library(ggtern)
+
+results_test %>%
+  select(dead.obs, grass.obs, sand.obs, dead.pred, grass.pred, sand.pred) %>%
+  mutate(id = 1:nrow(results_test)) %>%
+  pivot_longer(ends_with(c("obs","pred")), names_to = c(".value", "type"), names_sep = "\\.") %>%
+  ggtern(aes(dead, grass, sand, group = id)) +
+  #geom_point(aes(color = type)) +
+  geom_path(arrow = arrow(length = unit( 0.05, "inches"))) +
+  theme_rgbw()
+```
+
+Coefficients.
+
+```{r}
+glm_fitted_coef <- predict(glm_trained, type = "coefficients", s = best %>% pull(lambda))
+
+glm_fitted_coef <- cbind(
+  glm_fitted_coef[[1]] %>% as.matrix(),
+  glm_fitted_coef[[2]] %>% as.matrix(),
+  glm_fitted_coef[[3]] %>% as.matrix()
+  )
+
+colnames(glm_fitted_coef) <- c("dead", "grass", "sand")
+
+glm_fitted_coef <- glm_fitted_coef %>%
+  as_tibble(rownames = "var")
+
+glm_fitted_coef_nz <- glm_fitted_coef %>%
+  filter(dead != 0 | grass != 0 | sand != 0)
+```
+
+```{r}
+glm_fitted_coef_nz
+```
+
+
+```{r}
+best %>% pull(lambda) %>% log()
+plot(glm_trained, xvar = "lambda", label = TRUE)
+#lines(c( best %>% pull(lambda),  best %>% pull(lambda)), c(-2,2))
+```

@@ -1,0 +1,160 @@
+---
+title: "Multinomial Logistic Regression with Regularization"
+format: html
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir=normalizePath(".."))
+```
+
+```{r}
+rm(list = ls())
+gc()
+```
+
+```{r}
+library(tidyverse)
+library(tidymodels)
+library(discrim)
+```
+
+Import data and remove thermal information and pixel counts.
+
+```{r}
+quad <- readRDS("clean_data/quad-data-xgb_model_final.rds") %>%
+  select(-starts_with("ortho_6")) %>%
+  select(-ends_with("_n")) %>%
+  select(-matches("_p\\d$")) %>%
+  select(-starts_with("ortho")) %>%
+  select(-ends_with("_min")) %>%
+  select(-ends_with("_max")) %>%
+  select(-ends_with("_mean")) %>%
+  select(-ends_with("_sd"))
+```
+
+Split data into training and testing sets.
+
+```{r}
+set.seed(8675309)
+quad_split <- quad %>% initial_split(strata = grass)
+quad_train <- quad_split %>% training()
+quad_test <- quad_split %>% testing()
+```
+
+
+Uncount the training data to get one observation per pixel.
+
+```{r}
+retain_prop <- 0.001 #proportion of the pixels to retain
+quad_train_pix <- quad_train %>%
+  mutate(across(dead:sand, ~ round(.x * retain_prop))) %>%
+  pivot_longer(cols = dead:sand,
+               names_to = "cls",
+               values_to = "count") %>%
+  mutate(cls = as_factor(cls)) %>%
+  uncount(count)
+```
+
+
+Workflow.
+
+```{r}
+qda_spec <- discrim_quad() %>%
+  set_engine("MASS") %>%
+  set_mode("classification")
+
+da_rec <- recipe(cls ~ . , data = quad_train_pix) %>%
+  step_rm(quadrant_key) %>%
+  step_normalize(all_predictors())
+
+qda_wf <- workflow() %>%
+  add_model(qda_spec) %>%
+  add_recipe(da_rec)
+```
+
+Train the workflow.
+
+```{r}
+qda_fit <- qda_wf %>%
+  fit(data = quad_train_pix)
+```
+
+Confusion matrix on the training set. However, this predicts one class for each qudrant!
+
+```{r}
+qda_fit %>%
+  augment(new_data = quad_train_pix) %>%
+  conf_mat(truth = cls, estimate = .pred_class)
+```
+
+```{r}
+results_train <- qda_fit %>%
+  augment(new_data = quad_train) %>%
+  mutate(total = dead + grass + sand) %>%
+  mutate(dead.obs = dead/total,
+         grass.obs = grass/total,
+         sand.obs = sand/total) %>%
+  rename(dead.pred = .pred_dead,
+         grass.pred = .pred_grass,
+         sand.pred = .pred_sand)
+```
+
+```{r}
+results_train_summary <- results_train %>%
+  select(dead.obs, grass.obs, sand.obs, dead.pred, grass.pred, sand.pred) %>%
+  pivot_longer(everything(), names_to = c("type", ".value"), names_sep = "\\.") %>%
+  mutate(dif2 = (obs - pred)^2) %>%
+  summarise(rmse =  sqrt(3 * sum(dif2) / n()) )
+
+results_train_summary
+```
+
+Evaluate performance on test set.
+
+```{r}
+results_test <- qda_fit %>%
+  augment(new_data = quad_test) %>%
+  mutate(total = dead + grass + sand) %>%
+  mutate(dead.obs = dead/total,
+         grass.obs = grass/total,
+         sand.obs = sand/total) %>%
+  rename(dead.pred = .pred_dead,
+         grass.pred = .pred_grass,
+         sand.pred = .pred_sand)
+```
+
+```{r}
+results_test_summary <- results_test %>%
+  select(dead.obs, grass.obs, sand.obs, dead.pred, grass.pred, sand.pred) %>%
+  pivot_longer(everything(), names_to = c("type", ".value"), names_sep = "\\.") %>%
+  mutate(dif2 = (obs - pred)^2) %>%
+  summarise(rmse = sqrt(3 * sum(dif2) / n()) )
+
+results_test_summary
+```
+
+Also add ternary diagram with pred and obs for test set connected by lines.
+
+```{r}
+results_test %>%
+  select(dead.obs, grass.obs, sand.obs, dead.pred, grass.pred, sand.pred) %>%
+  pivot_longer(everything(), names_to = c("type", ".value"), names_sep = "\\.") %>%
+  ggplot(aes(obs, pred, color = type)) +
+  geom_point() +
+  geom_abline() +
+  theme_minimal()
+```
+
+```{r}
+library(ggtern)
+
+results_test %>%
+  select(dead.obs, grass.obs, sand.obs, dead.pred, grass.pred, sand.pred) %>%
+  mutate(id = 1:nrow(results_test)) %>%
+  pivot_longer(ends_with(c("obs","pred")), names_to = c(".value", "type"), names_sep = "\\.") %>%
+  ggtern(aes(dead, grass, sand, group = id)) +
+  #geom_point(aes(color = type)) +
+  geom_path(arrow = arrow(length = unit( 0.05, "inches"))) +
+  theme_rgbw()
+```
