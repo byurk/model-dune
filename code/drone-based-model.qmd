@@ -35,37 +35,50 @@ jack_data <- readRDS(counts_path)
 
 pixel_counts_clean <- jack_data |>
   mutate(notgrass = dead + sand) |>
-  mutate(total = grass +dead + sand) |>
-  mutate(grass = grass/total, dead = dead/total, sand = sand/total) |>
-  as_tibble() 
+  mutate(total = grass + dead + sand) |>
+  mutate(grass = grass / total, dead = dead / total, sand = sand / total) |>
+  as_tibble()
 ```
 
 Multinomial regression model with lasso regularization.
 
 ```{r}
-non_predictors <- c("notgrass", "grass", "sand", "dead", "quadrat", "total", "quad_num","quad_quad", 'quadrant_key')
+non_predictors <- c(
+  "notgrass",
+  "grass",
+  "sand",
+  "dead",
+  "quadrat",
+  "total",
+  "quad_num",
+  "quad_quad",
+  'quadrant_key'
+)
 
 #predictors <- names(pixel_counts_clean)[!names(pixel_counts_clean) %in% non_predictors]
-predictors <-  c(
-                 'ortho_1_mean',
-                 'ortho_2_mean',
-                 'ortho_3_mean',
-                 'ortho_4_mean',
-                 'ortho_5_mean',
-                 'ndvi_mean',
-                 'ndvi_sd', 
-                 'ortho_1_sd',
-                 'ortho_2_sd',
-                 'ortho_3_sd',
-                 'ortho_4_sd',
-                 'ortho_5_sd'
-                 )
+predictors <- c(
+  'ortho_1_mean',
+  'ortho_2_mean',
+  'ortho_3_mean',
+  'ortho_4_mean',
+  'ortho_5_mean',
+  'ndvi_mean',
+  'ndvi_sd',
+  'ortho_1_sd',
+  'ortho_2_sd',
+  'ortho_3_sd',
+  'ortho_4_sd',
+  'ortho_5_sd'
+)
 ```
 
 ```{r}
-formula <- as.formula(paste0('grass + dead + sand ~ ', paste0(predictors, collapse =" + ")))
+formula <- as.formula(paste0(
+  'grass + dead + sand ~ ',
+  paste0(predictors, collapse = " + ")
+))
 
-rec <- recipe(formula = formula, data = pixel_counts_clean)|>
+rec <- recipe(formula = formula, data = pixel_counts_clean) |>
   step_normalize(all_predictors())
 
 prepped_recipe <- prep(rec)
@@ -75,7 +88,7 @@ prepped_recipe <- prep(rec)
 
 pixel_counts <- bake(prepped_recipe, new_data = NULL)
 
-training_split <- pixel_counts |> 
+training_split <- pixel_counts |>
   initial_split(strata = grass)
 
 counts_train <- training_split |>
@@ -101,7 +114,7 @@ x <- counts_train |>
 Fit multinomial regression model with cross validation
 
 ```{r}
-fit <- cv.glmnet(x, y , family = "multinomial")
+fit <- cv.glmnet(x, y, family = "multinomial")
 ```
 
 ```{r}
@@ -109,18 +122,25 @@ test_y <- counts_test |>
   dplyr::select(c(grass, sand, dead)) |>
   rowwise() |>
   mutate(total = sum(grass, sand, dead)) |>
-  mutate(dead.obs = dead/total,
-         grass.obs = grass/total,
-         sand.obs = sand/total) |>
+  mutate(
+    dead.obs = dead / total,
+    grass.obs = grass / total,
+    sand.obs = sand / total
+  ) |>
   dplyr::select(-c(total, grass, dead, sand)) |>
   ungroup()
-  
+
 
 test_x <- counts_test |>
   dplyr::select(predictors) |>
   as.matrix()
 
-prediction <- predict(fit, newx = test_x, s = "lambda.min", type = 'response') |>
+prediction <- predict(
+  fit,
+  newx = test_x,
+  s = "lambda.min",
+  type = 'response'
+) |>
   as_tibble() |>
   rename(dead.pred = dead.1, grass.pred = grass.1, sand.pred = sand.1)
 ```
@@ -132,22 +152,25 @@ Fit Dirichlet regression model
 train_data <- counts_train
 train_data$Y <- DR_data(train_data[c('grass', 'sand', 'dead')])
 
-dirichlet_fit <- DirichReg(Y ~ 
-                     ortho_1_mean + 
-                     ortho_2_mean + 
-                     ortho_2_mean + 
-                     ortho_3_mean + 
-                     ortho_4_mean +
-                     ortho_5_mean +
-                     ndvi_mean +
-                     ndvi_sd +
-                     ortho_1_sd +
-                     ortho_2_sd +
-                     ortho_2_sd +
-                     ortho_3_sd +
-                     ortho_4_sd +
-                     ortho_5_sd,
-                     data = train_data, model = "alternative")
+dirichlet_fit <- DirichReg(
+  Y ~
+    ortho_1_mean +
+      ortho_2_mean +
+      ortho_2_mean +
+      ortho_3_mean +
+      ortho_4_mean +
+      ortho_5_mean +
+      ndvi_mean +
+      ndvi_sd +
+      ortho_1_sd +
+      ortho_2_sd +
+      ortho_2_sd +
+      ortho_3_sd +
+      ortho_4_sd +
+      ortho_5_sd,
+  data = train_data,
+  model = "alternative"
+)
 ```
 
 ```{r}
@@ -165,18 +188,18 @@ truth <- test_data |>
 truth_longer <- truth |>
   mutate(id = row_number()) |>
   pivot_longer(cols = c(grass, dead, sand))
-              
+
 # The RMSE is the square root of average squared difference between observed and predicted value
 # Each residual is a vector in R^3
 
 num_of_observations <- nrow(test_data) # Number of residuals = Number of observations
 
 rmse <- prediction_dirichlet |>
-  mutate(id = row_number())|>
+  mutate(id = row_number()) |>
   pivot_longer(cols = c(grass, dead, sand)) |>
   left_join(truth_longer, by = c('id', 'name')) |>
   mutate(error_squared = (value.x - value.y)^2) |>
-  summarize(rmse = sqrt(sum(error_squared) / num_of_observations )) |>
+  summarize(rmse = sqrt(sum(error_squared) / num_of_observations)) |>
   pull(rmse)
 
 
@@ -187,12 +210,16 @@ print(rmse)
 Extract test RMSE
 
 ```{r}
-n  <- nrow(test_y)
+n <- nrow(test_y)
 
 error <- bind_cols(prediction, test_y) |>
-  pivot_longer(everything(), names_to = c("type", ".value"), names_sep = "\\.") |>
+  pivot_longer(
+    everything(),
+    names_to = c("type", ".value"),
+    names_sep = "\\."
+  ) |>
   rowwise() |>
-  mutate(squard_error = (pred -obs)^2) |>
+  mutate(squard_error = (pred - obs)^2) |>
   ungroup()
 
 #rmse <- sqrt(sum(error$squard_error)/n)
@@ -221,7 +248,7 @@ coefficients
 Plot on ternary diagram
 
 ```{r}
-error |> 
+error |>
   ggplot(aes(obs, pred, color = type)) +
   geom_point() +
   geom_abline() +
@@ -230,9 +257,20 @@ error |>
 
 ```{r}
 data <- bind_cols(prediction, test_y) |>
-  dplyr::select(dead.obs, grass.obs, sand.obs, dead.pred, grass.pred, sand.pred) |>
+  dplyr::select(
+    dead.obs,
+    grass.obs,
+    sand.obs,
+    dead.pred,
+    grass.pred,
+    sand.pred
+  ) |>
   mutate(id = 1:nrow(prediction)) |>
-  pivot_longer(ends_with(c("obs","pred")), names_to = c(".value", "type"), names_sep = "\\.") 
+  pivot_longer(
+    ends_with(c("obs", "pred")),
+    names_to = c(".value", "type"),
+    names_sep = "\\."
+  )
 data
 ```
 
@@ -246,6 +284,6 @@ data |>
 ```{r Ternary with arrows}
 data |>
   ggtern(aes(dead, grass, sand, group = id)) +
-  geom_path(arrow = arrow(length = unit( 0.05, "inches"))) +
+  geom_path(arrow = arrow(length = unit(0.05, "inches"))) +
   theme_rgbw()
 ```

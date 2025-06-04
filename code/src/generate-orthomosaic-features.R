@@ -6,40 +6,32 @@ source('code/src/spatial-utils.R')
 
 tic()
 
-ortho_path <- 'raw_data/ortho.tif'
+ortho_path <- 'raw_data/drone_sitched/ortho.tif'
 ortho <- terra::rast(ortho_path)
 
-ortho_with_ndvi <- ortho |> 
-  add_ndvi()
-
-contrast <- ortho_with_ndvi |>
-  raster::brick() |>
-  get_contrast(layer = 7L, window = 5L)
-
-o <- c(ortho_with_ndvi, contrast)
-
-## Save raster for later
-ortho_ndvi_contrast <- o
-terra::writeRaster(ortho_ndvi_contrast, 'clean_data/ortho_ndvi_contrast.tif')
-
+features <- ortho %>% 
+  add_ndvi() %>%
+  add_hsv()
 
 aggregate_functions <- list(
   "sd" = "sd",
   "mean" = "mean",
   "max" = "max",
-  "min" = "min"
+  "min" = "min",
+  "median" = "median",
+  "q1" = \(x,...) quantile(x, 0.25,...),
+  "q3" = \(x,...) quantile(x, 0.75,...)
 )
 
-results <- list()
+aggregate_features <- lapply(names(aggregate_functions), function(stat_name) {
+  result <- aggregate(features, fact = 5, fun = aggregate_functions[[stat_name]], na.rm = TRUE)
+  names(result) <- paste0(names(result), "_", stat_name)
+  result
+})
 
-for (statistic_name in names(aggregate_functions)) {
-  func <- aggregate_functions[[statistic_name]]
-  result <- aggregate(o, fact = 6, fun = func, na.rm = TRUE)
-  names(result) <- paste0(names(result), "_", statistic_name)
-  results[[statistic_name]] <- result
-}
+names(aggregate_features) <- names(aggregate_functions)
 
-processed_ortho <- terra::rast(unname(results))
+aggregated_ortho <- terra::rast(unname(aggregate_features))
 
-terra::writeRaster(processed_ortho, filename = 'clean_data/processed_ortho.tif', overwrite=TRUE)
+terra::writeRaster(aggregated_ortho, filename = 'clean_data/aggregated_ortho.tif', overwrite=TRUE)
 toc()
