@@ -23,15 +23,13 @@ aggregate_functions <- list(
   "q3" = \(x,...) quantile(x, 0.75,...)
 )
 
-aggregate_features <- list()
+aggregate_features <- lapply(names(aggregate_functions), function(stat_name) {
+  result <- aggregate(features, fact = 5, fun = aggregate_functions[[stat_name]], na.rm = TRUE)
+  names(result) <- paste0(names(result), "_", stat_name)
+  result
+})
 
-for (statistic_name in names(aggregate_functions)) {
-  statistic_name <- 'q3'
-  func <- aggregate_functions[[statistic_name]]
-  result <- aggregate(features, fact = 6, fun = func, na.rm = TRUE)
-  names(result) <- paste0(names(result), "_", statistic_name)
-  results[[statistic_name]] <- result
-}
+names(aggregate_features) <- names(aggregate_functions)
 
 aggregated_ortho <- terra::rast(unname(aggregate_features))
 
