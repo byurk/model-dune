@@ -71,38 +71,26 @@ create_plot(slope, "Slope with Mask", mask = mask, color_scale = terrain.colors)
 
 ## Create data
 
+Resample the coverage map onto the slope grid so the two rasters share an identical
+extent/resolution/CRS.
+
 ```{r}
 coverage_resampled <- terra::resample(coverage, slope, method="bilinear")
-
-sand_df <- coverage_resampled |>
-  terra::as.data.frame(xy=TRUE) |>
-  as_tibble() |>
-  rename(sand = 3)
-
-slope_df <- slope |>
-  terra::as.data.frame(xy=TRUE) |>
-  as_tibble() |>
-  rename(slope = 3)
-
-data <- sand_df |> 
-  inner_join(slope_df, by = c("x", "y"))
-data
+names(coverage_resampled) <- "sand"
+names(slope) <- "slope"
 ```
 
 # Visual check
 
-Some strange behavior here. The first time this code is run the mask does not work. On subsequent runs it seems to work albeit somewhat sporadically. Need to find the root cause. 
+Mask the aligned rasters directly. (Previously this rebuilt the rasters from a data-frame of
+xyz cell centres via `terra::rast(data, crs = CRS)`; inferring the grid from floating-point
+coordinates produced a slightly irregular resolution — x and y differed in the ~10th decimal —
+which made rasterising the mask polygon behave inconsistently, so the mask "worked sporadically".
+Masking the already-registered rasters removes the round-trip and is stable.)
 
 ```{r}
-sand_rast <-  data |>
-  select(-slope) |>
-  terra::rast(crs = CRS)  |>
-  terra::mask(mask, inverse=TRUE)
-
-slope_rast <- data |>
-  select(-sand) |>
-  terra::rast(crs = CRS)  |>
-  terra::mask(mask, inverse=TRUE)
+sand_rast  <- terra::mask(coverage_resampled, mask, inverse = TRUE)
+slope_rast <- terra::mask(slope,              mask, inverse = TRUE)
 
 create_plot(sand_rast, "Sand", mask=mask)
 create_plot(slope_rast, "Slope", mask=mask)
