@@ -10,9 +10,36 @@ git clone git@github.com:byurk/model-dune.git
 
 2. Open up the project by navigating inside the directory and click ```model-dune.Rproj```.
 
-3. Check for any warnings for missing dependencies that you might have to install.
+3. Restore the pinned package environment (`renv` bootstraps itself on first open):
+
+```r
+renv::restore()
+```
 
 Done! Now you should be able to run the code in the project.
+
+### About the pinned environment (renv)
+
+`renv.lock` pins **R 4.3.2** and 208 packages to the CRAN state of **2024-06-13** — the day
+`outputs/xgb_model_final.rds` was fit (see the "final model selection" commit). This is not
+housekeeping; the saved model **does not work on current packages**:
+
+- The fitted booster's `$raw` is `xgb.serialize()` internal-state format, which needs
+  `xgb.Booster.complete()` — a function **removed in xgboost >= 2.0**. Current xgboost cannot
+  load this model at all.
+- `predict(workflow, new_data)` additionally fails under current **hardhat** (blueprint drift).
+
+With the pinned versions (xgboost 1.7.7.1, hardhat 1.4.0, parsnip 1.2.1, recipes 1.0.10),
+`predict()` on the saved workflow just works — verified 99.1% on 5,000 labeled pixels.
+
+Notes for anyone rebuilding this environment:
+
+- The lock's repo is a **dated Posit Package Manager snapshot**, so `renv::restore()` gets the
+  same versions on any platform (binaries on Linux, sources/binaries elsewhere).
+- `vip` and `glcm` are **archived on CRAN** today but are regular packages in that snapshot —
+  another reason the date pin matters.
+- Data lives in gitignored `raw_data/`, `clean_data/`, `outputs/` — symlink these to the project
+  data (canonical copy on euler under `products/SHNA/2019-07-05_grass_paper/`).
 
 
 ## Project structure
